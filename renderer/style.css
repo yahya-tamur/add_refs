@@ -1,0 +1,65 @@
+:root {
+  --bg: #e6e6ea; --fg: #16161a; --bar: #fff; --muted: #666; --line: #d0d0d6;
+  --panel: #fafafb; --accent: #2a6fdb; --popup: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #232327; --fg: #ececf0; --bar: #1a1a1d; --muted: #9a9aa2; --line: #3a3a40;
+          --panel: #1e1e22; --accent: #6aa0ff; --popup: #2a2a2f; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; display: flex; flex-direction: column; }
+button { font: inherit; white-space: nowrap; flex: none; padding: 4px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+
+header { display: flex; gap: 10px; align-items: center; padding: 6px 12px; background: var(--bar); border-bottom: 1px solid var(--line); }
+#file { font-weight: 600; flex: 0 1 auto; min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#status { margin-left: auto; flex: 0 1 auto; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#status.mode { color: var(--accent); font-weight: 600; }
+
+main { flex: 1; display: flex; min-height: 0; }
+#sidebar { width: 270px; flex: none; overflow: auto; background: var(--panel); border-right: 1px solid var(--line); padding: 8px 10px; }
+#sidebar h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 4px 0 8px; }
+.def-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; cursor: pointer; }
+.def-row:hover { background: var(--bg); }
+.def-row .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.def-row .term { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.def-row .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+#unresolved { margin-top: 10px; }
+#help { margin-top: 16px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+#help summary { cursor: pointer; font-weight: 600; }
+#help p { margin: 6px 0; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 3px; font-size: 11px; }
+
+#viewer { flex: 1; overflow: auto; position: relative; }
+#pages { padding: 16px 0 40vh; }
+.page { position: relative; margin: 22px auto; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.3); user-select: none; }
+.page canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.page .label { position: absolute; top: -18px; left: 0; font-size: 12px; color: var(--muted); }
+.page svg.overlay { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: multiply; }
+.page svg.hits { position: absolute; inset: 0; width: 100%; height: 100%; }
+.page.creating { cursor: crosshair; }
+.hit { fill: transparent; cursor: pointer; }
+.hit.def { cursor: help; }
+.flash { animation: flash 1.4s; }
+@keyframes flash { 0%, 40% { opacity: 1; stroke-width: 4; } 100% { stroke-width: 0; } }
+
+#prompt { position: fixed; z-index: 20; width: 330px; background: var(--popup); color: var(--fg); border: 1px solid var(--line);
+          border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.25); padding: 8px; }
+#prompt label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+#prompt input { width: 100%; font: 15px ui-monospace, monospace; padding: 5px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--fg); }
+#prompt-preview { min-height: 22px; margin: 6px 2px 0; font-size: 16px; }
+#prompt-match { font-size: 12px; color: var(--muted); margin: 2px; }
+#prompt-match .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+#prompt-suggest { list-style: none; margin: 4px 0 0; padding: 0; max-height: 220px; overflow: auto; }
+#prompt-suggest li { display: flex; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 4px; cursor: pointer; }
+#prompt-suggest li.active, #prompt-suggest li:hover { background: var(--bg); }
+#prompt-suggest .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+#prompt-suggest .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+#menu { position: fixed; z-index: 30; background: var(--popup); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.25); padding: 4px; }
+#menu div { padding: 4px 14px; border-radius: 4px; cursor: pointer; }
+#menu div:hover { background: var(--bg); }
+#tip { position: fixed; z-index: 25; pointer-events: none; background: var(--popup); border: 1px solid var(--line); border-radius: 6px;
+       box-shadow: 0 3px 12px rgba(0,0,0,.2); padding: 5px 8px; max-width: 380px; font-size: 13px; }
+#tip .ctx { color: var(--muted); font-size: 12px; margin-top: 3px; }

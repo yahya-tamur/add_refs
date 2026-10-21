@@ -1,0 +1,18 @@
+{
+  "name": "add-refs",
+  "version": "0.1.0",
+  "description": "Mark definitions in PDFs and link later uses of each term to its definition",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "katex": "^0.16.11",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "3.11.174"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}
