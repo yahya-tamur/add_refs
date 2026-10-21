@@ -10,10 +10,9 @@
 </head>
 <body>
 <header>
-  <button id="open" title="Open a PDF, optionally with its .refs.json annotations (Ctrl+O). You can also drop files here.">Open…</button>
-  <input id="picker" type="file" accept=".pdf,.json,application/pdf,application/json" multiple hidden>
-  <button id="save" title="Save the annotations as a .refs.json file (Ctrl+S)" disabled>Save annotations</button>
-  <button id="export" title="Download a copy of the PDF with highlights and links (Ctrl+E)" disabled>Export PDF</button>
+  <button id="open" title="Open a PDF (Ctrl+O). You can also drop one here.">Open…</button>
+  <input id="picker" type="file" accept=".pdf,application/pdf" hidden>
+  <button id="export" title="Download the PDF with highlights, links and the annotations inside it (Ctrl+S)" disabled>Export PDF</button>
   <button id="back" title="Back to where you followed the link (Alt+←)" hidden>← Back</button>
   <span id="file"></span>
   <span id="status"></span>
@@ -28,7 +27,7 @@
       <p><kbd>Shift</kbd>+drag over the text of a definition to highlight it (repeat to add more lines, even on other pages).</p>
       <p>Then drag a box around the symbol or phrase being defined and type it, e.g. <code>simple equivalence</code> or <code>\Sigma_{ij}</code>.</p>
       <p>Drag over a later use of a term to underline it. Type the term (an English phrase is filled in for you); if it matches a definition, it becomes a link in that definition's colour.</p>
-      <p>Annotations are kept in this browser. Use <b>Save annotations</b> for a <code>.refs.json</code> file you can share or reopen with the PDF.</p>
+      <p>Annotations autosave in this browser. <b>Export PDF</b> downloads a copy with the marks and links that any viewer can show; open that copy here to keep editing.</p>
       <p>Click a link to jump; <kbd>Alt</kbd>+<kbd>←</kbd> goes back. Right-click a mark to edit or delete it. <kbd>Esc</kbd> cancels, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+wheel zooms.</p>
     </details>
   </aside>

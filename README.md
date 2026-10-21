@@ -13,10 +13,10 @@ To build locally: `npm install && npm run build` writes the site to `dist/`;
 
 ## Opening papers
 
-- **Open…** (Ctrl+O) or drop files on the window: a PDF, optionally together with its `.refs.json`.
-  A `.refs.json` on its own loads onto the PDF already open.
-- `index.html?pdf=<url>&refs=<url>` opens a hosted paper (same site, or a server that allows CORS).
-  If this browser already has annotations for that PDF, those are used instead of `refs`.
+- **Open…** (Ctrl+O) or drop a PDF on the window. Opening a PDF exported by Add Refs restores its
+  annotations for editing.
+- `index.html?pdf=<url>` opens a hosted paper (same site, or a server that allows CORS). If this
+  browser already has annotations for that PDF, they take precedence over ones embedded in it.
 - The last PDF reopens automatically.
 
 ## Annotating
@@ -33,13 +33,11 @@ To build locally: `npm install && npm run build` writes the site to `dist/`;
 Terms match case-insensitively and tolerate plurals (`complexes` → `complex`). A reference links to the
 nearest *preceding* definition of its term; the same term always keeps the same colour.
 
-## Saving
+## Saving and exporting
 
 - Annotations autosave in this browser (IndexedDB), keyed by the PDF's fingerprint, so renaming the
   file doesn't lose them. Clearing site data does.
-- **Save annotations** (Ctrl+S) writes `paper.refs.json`. In Chrome/Edge you pick the file once and
-  later changes keep saving to it; other browsers download a copy each time.
-  Coordinates are PDF points at scale 1, origin top left.
-- **Export PDF** (Ctrl+E) downloads `paper (refs).pdf` with highlights, boxes and underlines painted in
-  and real PDF link annotations, plus `paper (refs).json`, the sidecar format
-  `math 610 papers/highlighted/viewer.html` reads.
+- **Export PDF** (Ctrl+S / Ctrl+E) downloads `paper (refs).pdf`: highlights, boxes and underlines
+  painted into the pages, real link annotations, and the annotation data as an attached
+  `add-refs.json`. It reads in any PDF viewer, and opening it here again strips the painted marks and
+  links and continues editing. Unlinked references are kept in the data but not drawn.
