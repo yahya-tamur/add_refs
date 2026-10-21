@@ -99,10 +99,11 @@ class PageText {
 
   // Line rects of each case-insensitive match of `query`. Hyphens are ignored on both sides, so
   // words broken across lines ("homo- topy") and hyphenated words both match.
-  find(query) {
-    const q = fold(query).replace(/-/g, "").replace(/\s+/g, " ").trim();
+  // With `exact`, case matters (for symbols: Λ is not λ).
+  find(query, exact = false) {
+    const q = (exact ? query.normalize("NFKC") : fold(query)).replace(/-/g, "").replace(/\s+/g, " ").trim();
     if (!q) return [];
-    const { text, map } = this.searchIndex();
+    const { text, map } = this.searchIndex(exact);
     const hits = [];
     for (let i = text.indexOf(q); i >= 0; i = text.indexOf(q, i + 1)) {
       const run = [...new Set(map.slice(i, i + q.length).filter(k => k >= 0))].map(k => this.chars[k]);
@@ -113,8 +114,9 @@ class PageText {
 
   // The page as one folded string with single spaces between words (none after a line-end hyphen);
   // map[k] is the index of the character behind text[k], -1 for spaces.
-  searchIndex() {
-    if (this.index) return this.index;
+  searchIndex(exact = false) {
+    this.index ||= {};
+    if (this.index[exact]) return this.index[exact];
     let text = "", prev = null, gap = false, hyphen = false;
     const map = [];
     this.chars.forEach((ch, i) => {
@@ -125,9 +127,9 @@ class PageText {
         if (newLine ? !hyphen : apart) { text += " "; map.push(-1); }
       }
       prev = ch; gap = false; hyphen = ch.c === "-";
-      for (const c of fold(ch.c)) if (c !== "-") { text += c; map.push(i); }
+      for (const c of exact ? ch.c.normalize("NFKC") : fold(ch.c)) if (c !== "-") { text += c; map.push(i); }
     });
-    return (this.index = { text, map });
+    return (this.index[exact] = { text, map });
   }
 }
 

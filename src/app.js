@@ -16,7 +16,7 @@ let docName = null, docKey = null, pdfBytes = null, pdf = null;
 let pages = [];        // 1-based: { n, page, vp1, el, canvas, overlay, hits, renderedScale, task, textData }
 let data = emptyData();
 let scale = 1.5;
-let pending = null;    // definition in progress: { parts: [{ page, rects }], text }
+let pending = null;    // definition in progress: { parts: [{ page, rects }], text, color }
 const undoStack = [], backStack = [];
 
 function emptyData() { return { version: 1, definitions: [], references: [] }; }
@@ -60,12 +60,15 @@ function resolve(ref) {
   return cands.filter(d => before(posOf(d), at)).at(-1) || cands[0];
 }
 
-function colorFor(term) {
-  const same = data.definitions.find(d => norm(d.term) === norm(term));
-  if (same) return same.color;
-  const used = new Set(data.definitions.map(d => d.color));
-  return PALETTE.find(c => !used.has(c)) || PALETTE[data.definitions.length % PALETTE.length];
+// A colour for a definition: the least used one (unused if possible), never that of another
+// definition of the same term, so repeated definitions of a word stay apart.
+function pickColor(term = null, except = null) {
+  const others = data.definitions.filter(d => d !== except);
+  const taken = new Set(term ? others.filter(d => norm(d.term) === norm(term)).map(d => d.color) : []);
+  const uses = c => others.filter(d => d.color === c).length;
+  return PALETTE.filter(c => !taken.has(c)).sort((a, b) => uses(a) - uses(b))[0] || PALETTE[others.length % PALETTE.length];
 }
+const clashes = (color, term, except = null) => data.definitions.some(d => d !== except && d.color === color && norm(d.term) === norm(term));
 
 // ---------- persistence ----------
 
@@ -207,14 +210,14 @@ function drawAll() {
   for (const p of pages.slice(1)) { p.overlay.replaceChildren(); p.hits.replaceChildren(); }
   for (const d of data.definitions) {
     for (const part of d.highlight) {
-      for (const r of part.rects) {
+      for (const r of clipRects(part.rects, pendingRects(part.page))) {
         pages[part.page]?.overlay.append(svg("rect", { ...rectAttrs(r), fill: d.color, "fill-opacity": 0.32 }));
         pages[part.page]?.hits.append(svg("rect", { ...rectAttrs(r), class: "hit def", "data-def": d.id }));
       }
     }
     const b = pages[d.box.page];
     if (!b) continue;
-    b.overlay.append(svg("rect", { ...rectAttrs(d.box.rect), fill: "none", stroke: d.color, "stroke-width": 1.3, id: "box-" + d.id }));
+    b.overlay.append(svg("rect", { ...rectAttrs(d.box.rect), fill: "none", stroke: d.color, "stroke-width": 0.6, id: "box-" + d.id }));
     b.hits.append(svg("rect", { ...rectAttrs(d.box.rect), class: "hit def", "data-def": d.id }));
   }
   for (const ref of data.references) {
@@ -230,8 +233,8 @@ function drawAll() {
   }
   if (pending) {
     for (const part of pending.parts) for (const r of part.rects) {
-      pages[part.page]?.overlay.append(svg("rect", { ...rectAttrs(r), fill: "#2a6fdb", "fill-opacity": 0.18,
-        stroke: "#2a6fdb", "stroke-dasharray": "3 2", "stroke-width": 0.8 }));
+      pages[part.page]?.overlay.append(svg("rect", { ...rectAttrs(r), fill: pending.color, "fill-opacity": 0.32,
+        stroke: pending.color, "stroke-dasharray": "3 2", "stroke-width": 0.6 }));
     }
   }
   search.hits.forEach((h, i) => {
@@ -307,7 +310,8 @@ viewer.addEventListener("mousedown", e => {
   const p = pages[+el.dataset.n];
   loadText(p); loadInk(p);
   const mode = e.shiftKey ? "highlight" : pending ? "box" : "underline";
-  drag = { p, mode, start: pagePoint(p, e), end: null, moved: false, target: e.target, preview: svg("g") };
+  drag = { p, mode, start: pagePoint(p, e), end: null, moved: false, target: e.target, preview: svg("g"),
+    color: pending?.color || pickColor() };
   p.overlay.append(drag.preview);
 });
 
@@ -321,8 +325,8 @@ addEventListener("mousemove", e => {
   drag.preview.replaceChildren(...(sel?.rects || []).map(r => drag.mode === "underline"
     ? svg("line", { x1: r[0], x2: r[2], y1: underlineY(r), y2: underlineY(r), stroke: "#2a6fdb", "stroke-width": 1.4 })
     : drag.mode === "box"
-      ? svg("rect", { ...rectAttrs(r), fill: "none", stroke: "#2a6fdb", "stroke-width": 1.2, "stroke-dasharray": "3 2" })
-      : svg("rect", { ...rectAttrs(r), fill: "#2a6fdb", "fill-opacity": 0.2 })));
+      ? svg("rect", { ...rectAttrs(r), fill: "none", stroke: drag.color, "stroke-width": 0.5 })
+      : svg("rect", { ...rectAttrs(r), fill: drag.color, "fill-opacity": 0.32 })));
 });
 
 addEventListener("mouseup", async e => {
@@ -339,9 +343,10 @@ addEventListener("mouseup", async e => {
   if (!sel || !sel.rects.length) { d.preview.remove(); return; }
   if (d.mode === "highlight") {
     d.preview.remove();
-    pending ||= { parts: [], text: "" };
+    const rects = sel.rects;
+    pending ||= { parts: [], text: "", color: d.color };
     const part = pending.parts.find(x => x.page === d.p.n);
-    if (part) part.rects.push(...sel.rects); else pending.parts.push({ page: d.p.n, rects: sel.rects });
+    if (part) part.rects = [...clipRects(part.rects, rects), ...rects]; else pending.parts.push({ page: d.p.n, rects });
     pending.text = (pending.text + " " + sel.text).trim();
     drawAll();
     setStatus("Now drag a box around the term being defined · Shift-drag adds more text · Esc cancels", true);
@@ -357,7 +362,12 @@ addEventListener("mouseup", async e => {
         if (!term) return;
         if (seen) Symbols.learn(seen.glyphs, term);
         mutate(() => {
-          data.definitions.push({ id: crypto.randomUUID(), term, color: colorFor(term), text: pending.text,
+          const color = clashes(pending.color, term) ? pickColor(term) : pending.color;
+          for (const other of data.definitions) {
+            for (const part of other.highlight) part.rects = clipRects(part.rects, pendingRects(part.page));
+            other.highlight = other.highlight.filter(part => part.rects.length);
+          }
+          data.definitions.push({ id: crypto.randomUUID(), term, color, text: pending.text,
             highlight: pending.parts, box: { page: d.p.n, rect } });
           pending = null;
         });
@@ -383,6 +393,18 @@ addEventListener("mouseup", async e => {
     });
   }
 });
+
+// Highlights never stack: a new one replaces the parts of older ones it covers. `clip` returns the
+// parts of `rects` outside `cutters` (on the same line).
+function clipRects(rects, cutters) {
+  const minus = (r, t) => {
+    const sameLine = Math.min(r[3], t[3]) - Math.max(r[1], t[1]) > 0.5 * Math.min(r[3] - r[1], t[3] - t[1]);
+    if (!sameLine || t[2] <= r[0] || t[0] >= r[2]) return [r];
+    return [...t[0] > r[0] ? [[r[0], r[1], t[0], r[3]]] : [], ...t[2] < r[2] ? [[t[2], r[1], r[2], r[3]]] : []];
+  };
+  return cutters.reduce((out, t) => out.flatMap(r => minus(r, t)), rects).filter(r => r[2] - r[0] > 1.5);
+}
+const pendingRects = page => pending?.parts.filter(p => p.page === page).flatMap(p => p.rects) || [];
 
 // Text selection for highlight/underline drags (falls back to the dragged rectangle where the
 // page has no usable text layer); a plain rectangle for box drags.
@@ -512,7 +534,7 @@ function updatePrompt() {
     if (def) { m.querySelector(".sw").style.background = def.color; renderTerm(m.querySelector(".t"), def.term); }
   } else {
     const same = data.definitions.find(d => norm(d.term) === norm(chosen));
-    m.innerHTML = same ? '<span class="sw"></span>Another definition of an existing term (same colour)' : "New term";
+    m.innerHTML = same ? '<span class="sw"></span>Another definition of an existing term (in its own colour)' : "New term";
     if (same) m.querySelector(".sw").style.background = same.color;
   }
 }
@@ -600,9 +622,8 @@ function defMenu(e, d) {
   showMenu(e, [
     ["Edit term…", () => openPrompt({ x: e.clientX, y: e.clientY, kind: "def", label: "This passage defines:", value: d.term,
       onDone: term => term && term !== d.term && mutate(() => {
-        const others = data.definitions.filter(x => x !== d && norm(x.term) === norm(term));
         d.term = term;
-        d.color = others[0]?.color || (data.definitions.some(x => x !== d && x.color === d.color) ? colorFor(term) : d.color);
+        if (clashes(d.color, term, d)) d.color = pickColor(term, d);
       }) })],
     ["Delete definition", () => mutate(() => { data.definitions = data.definitions.filter(x => x !== d); })],
   ]);
@@ -655,7 +676,7 @@ async function exportBytes() {
       }
     }
     const [x0, y0, x1, y1] = toPdf(d.box.page, d.box.rect);
-    docPages[d.box.page - 1].drawRectangle({ x: x0, y: y0, width: x1 - x0, height: y1 - y0, borderColor: color(d.color), borderWidth: 1.2 });
+    docPages[d.box.page - 1].drawRectangle({ x: x0, y: y0, width: x1 - x0, height: y1 - y0, borderColor: color(d.color), borderWidth: 0.6 });
   }
   for (const ref of data.references) {
     const d = resolve(ref);
@@ -753,15 +774,43 @@ function firstVisiblePage() {
   return pages.slice(1).find(p => p.el.offsetTop + p.el.offsetHeight > viewer.scrollTop)?.n || 1;
 }
 
+// A query naming a symbol, as LaTeX ("\Lambda", "\Sigma_{\Lambda}") or a Unicode character ("Λ"):
+// { latex, char } with the forms to look for in annotation terms and in the text, or null.
+function symbolQuery(q) {
+  q = q.trim();
+  const toChar = Object.fromEntries(Object.entries(Symbols.unicode).map(([k, ch]) => [ch, k]));
+  if (/[\\_^]/.test(q)) return { latex: q, char: Symbols.unicode[q] || null };
+  if ([...q].some(ch => toChar[ch])) return { latex: [...q].map(ch => toChar[ch] ? toChar[ch] + " " : ch).join("").trim(), char: q };
+  return null;
+}
+
+// Whether an annotation term contains the symbol (\Lambda is in \Sigma_{\Lambda}, not in \Lambdax).
+function termHas(term, latex) {
+  const t = norm(term), q = norm(latex);
+  for (let i = t.indexOf(q); i >= 0; i = t.indexOf(q, i + 1)) {
+    if (!(/[A-Za-z]$/.test(q) && /^[A-Za-z]/.test(t.slice(i + q.length)))) return true;
+  }
+  return false;
+}
+
+// Matches in the text layer, plus, for symbols (which scanned text layers rarely contain), the boxes
+// of definitions and the underlines of references whose term contains the symbol.
 async function runSearch(query) {
   search = { query, hits: [], index: -1 };
   if (query.trim()) {
     $("search-count").textContent = "…";
+    const sym = symbolQuery(query);
     for (const p of pages.slice(1)) {
       const t = await loadText(p);
       if (search.query !== query) return;  // a newer search started
-      for (const rects of t.find(query)) search.hits.push({ page: p.n, rects });
+      const found = sym ? (sym.char ? t.find(sym.char, true) : []) : t.find(query);
+      for (const rects of found) search.hits.push({ page: p.n, rects });
     }
+    if (sym) {
+      for (const d of data.definitions) if (termHas(d.term, sym.latex)) search.hits.push({ page: d.box.page, rects: [d.box.rect] });
+      for (const r of data.references) if (termHas(r.term, sym.latex)) search.hits.push({ page: r.page, rects: r.rects });
+    }
+    search.hits.sort((a, b) => a.page - b.page || a.rects[0][1] - b.rects[0][1] || a.rects[0][0] - b.rects[0][0]);
     const from = firstVisiblePage();
     search.index = search.hits.length ? Math.max(0, search.hits.findIndex(h => h.page >= from)) : -1;
   }

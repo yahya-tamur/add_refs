@@ -364,5 +364,8 @@ const Symbols = (() => {
     return { readings, glyphs: tokens.map(t => ({ f: t.f, top: t.cands[0].latex, t: t.cands[0].t })) };
   }
 
-  return { recognize, learn, ready, atoms };
+  // LaTeX command -> Unicode character, for the symbols above ("\\Lambda" -> "Λ").
+  const unicode = Object.fromEntries([GREEK_LOWER, GREEK_UPPER, OPERATORS, BIG].flatMap(m => Object.entries(m).map(([k, ch]) => ["\\" + k, ch])));
+
+  return { recognize, learn, ready, atoms, unicode };
 })();

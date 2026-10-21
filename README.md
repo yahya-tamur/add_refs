@@ -23,18 +23,18 @@ To build locally: `npm install && npm run build` writes the site to `dist/`;
 
 | Action | Result |
 | --- | --- |
-| **Shift+drag** over text | Highlights the definition passage (repeat to add lines, even on other pages) |
+| **Shift+drag** over text | Highlights the definition passage in the colour it will get (repeat to add lines, even on other pages). A new highlight replaces any older highlight it covers |
 | then **drag a box** | Outlines the defined symbol/phrase and asks for its term: `simple equivalence`, `\Sigma_{ij}`, `the $T$ group` |
 | **Drag** over a later use | Underlines it and asks which term it refers to (an English phrase is pre-filled). A match becomes a link, underlined in the definition's colour; no match is kept as a grey dashed "unlinked" mark that links once the definition exists |
 | Click an underline | Jumps to the definition; **← Back** / Alt+← returns |
-| **Ctrl+F** | Searches the PDF's text (Enter / Shift+Enter step through matches, Esc closes) |
+| **Ctrl+F** | Searches the PDF's text (Enter / Shift+Enter step through matches, Esc closes). A symbol (`\Lambda`, `Λ`, `\Sigma_{\Lambda}`) finds the definitions and references whose term contains it, plus any occurrence in the text layer |
 | Right-click a mark | Edit term / delete |
 | Esc · Ctrl+Z · Ctrl+wheel | Cancel · undo · zoom |
 
 English phrases match case-insensitively and tolerate plurals (`complexes` → `complex`); symbols match
 exactly (`T` is not `t`), ignoring LaTeX spacing and braces (`\Sigma_{\Lambda}` = `\Sigma_\Lambda`,
-`A^*` = `A*`). A reference links to the nearest *preceding* definition of its term; the same term
-always keeps the same colour.
+`A^*` = `A*`). A reference links to the nearest *preceding* definition of its term. Each definition
+gets the least-used colour, never that of another definition of the same term.
 
 ## Pre-filled terms
 
