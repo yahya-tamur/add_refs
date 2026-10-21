@@ -56,7 +56,42 @@ class PageText {
     const run = this.chars.slice(i0, i1 + 1);
     return { rects: lineRects(run), text: runText(run) };
   }
+
+  // Line rects of each case-insensitive match of `query`. Hyphens are ignored on both sides, so
+  // words broken across lines ("homo- topy") and hyphenated words both match.
+  find(query) {
+    const q = fold(query).replace(/-/g, "").replace(/\s+/g, " ").trim();
+    if (!q) return [];
+    const { text, map } = this.searchIndex();
+    const hits = [];
+    for (let i = text.indexOf(q); i >= 0; i = text.indexOf(q, i + 1)) {
+      const run = [...new Set(map.slice(i, i + q.length).filter(k => k >= 0))].map(k => this.chars[k]);
+      if (run.length) hits.push(lineRects(run));
+    }
+    return hits;
+  }
+
+  // The page as one folded string with single spaces between words (none after a line-end hyphen);
+  // map[k] is the index of the character behind text[k], -1 for spaces.
+  searchIndex() {
+    if (this.index) return this.index;
+    let text = "", prev = null, gap = false, hyphen = false;
+    const map = [];
+    this.chars.forEach((ch, i) => {
+      if (/\s/.test(ch.c)) { gap = true; return; }
+      if (prev) {
+        const newLine = Math.abs(ch.base - prev.base) > prev.size * 0.6;
+        const apart = gap || prev.item !== ch.item && ch.x0 - prev.x1 > prev.size * 0.15;
+        if (newLine ? !hyphen : apart) { text += " "; map.push(-1); }
+      }
+      prev = ch; gap = false; hyphen = ch.c === "-";
+      for (const c of fold(ch.c)) if (c !== "-") { text += c; map.push(i); }
+    });
+    return (this.index = { text, map });
+  }
 }
+
+const fold = s => s.normalize("NFKC").toLowerCase();
 
 function lineRects(run) {
   const rects = [];

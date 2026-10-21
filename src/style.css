@@ -14,6 +14,11 @@ button:disabled { opacity: .5; cursor: default; }
 
 header { display: flex; gap: 10px; align-items: center; padding: 6px 12px; background: var(--bar); border-bottom: 1px solid var(--line); }
 #file { font-weight: 600; flex: 0 1 auto; min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#search { display: flex; gap: 4px; align-items: center; flex: none; }
+#search[hidden] { display: none; }
+#search input { font: inherit; width: 200px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--fg); }
+#search button { padding: 3px 7px; }
+#search-count { color: var(--muted); font-size: 12px; min-width: 56px; text-align: center; }
 #status { margin-left: auto; flex: 0 1 auto; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #status.mode { color: var(--accent); font-weight: 600; }
 
@@ -55,6 +60,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
 #prompt-suggest li { display: flex; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 4px; cursor: pointer; }
 #prompt-suggest li.active, #prompt-suggest li:hover { background: var(--bg); }
 #prompt-suggest .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+#prompt-suggest .sw.none { border: 1px dashed var(--muted); }
 #prompt-suggest .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
 
 #menu { position: fixed; z-index: 30; background: var(--popup); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.25); padding: 4px; }

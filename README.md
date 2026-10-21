@@ -27,11 +27,30 @@ To build locally: `npm install && npm run build` writes the site to `dist/`;
 | then **drag a box** | Outlines the defined symbol/phrase and asks for its term: `simple equivalence`, `\Sigma_{ij}`, `the $T$ group` |
 | **Drag** over a later use | Underlines it and asks which term it refers to (an English phrase is pre-filled). A match becomes a link, underlined in the definition's colour; no match is kept as a grey dashed "unlinked" mark that links once the definition exists |
 | Click an underline | Jumps to the definition; **← Back** / Alt+← returns |
+| **Ctrl+F** | Searches the PDF's text (Enter / Shift+Enter step through matches, Esc closes) |
 | Right-click a mark | Edit term / delete |
 | Esc · Ctrl+Z · Ctrl+wheel | Cancel · undo · zoom |
 
-Terms match case-insensitively and tolerate plurals (`complexes` → `complex`). A reference links to the
-nearest *preceding* definition of its term; the same term always keeps the same colour.
+English phrases match case-insensitively and tolerate plurals (`complexes` → `complex`); symbols match
+exactly (`T` is not `t`), ignoring LaTeX spacing and braces (`\Sigma_{\Lambda}` = `\Sigma_\Lambda`,
+`A^*` = `A*`). A reference links to the nearest *preceding* definition of its term; the same term
+always keeps the same colour.
+
+## Pre-filled terms
+
+Boxes and underlines over an English phrase fill it in from the PDF's text. Over a symbol, the app
+reads it from the page image: it splits the region into glyphs, places sub- and superscripts by their
+baselines, and matches each glyph against Greek, Latin, fraktur, calligraphic, blackboard and common
+operator glyphs drawn from KaTeX's fonts. Readings appear as suggestions, the best one filled in;
+one that names an existing definition is preferred.
+
+When a reading is wrong and you type the right LaTeX, the app learns the glyph's shape (if the number
+of glyphs matches the symbols typed) and prefers it from then on, in this browser. Old typefaces
+differ a lot from KaTeX's: on Whitehead's *Simple Homotopy Types* about 38% of symbols read correctly
+out of the box and about 60% once corrections are learned along the way.
+
+Search and English pre-fill rely on the PDF's text layer, which on some scans (e.g. JSTOR's) is
+slightly offset from the image.
 
 ## Saving and exporting
 

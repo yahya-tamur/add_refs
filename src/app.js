@@ -1,4 +1,4 @@
-/* global pdfjsLib, katex, PDFLib, PageText, store, chooseSaveTarget */
+/* global pdfjsLib, katex, PDFLib, PageText, Symbols, store, chooseSaveTarget */
 // Annotation model (kept in IndexedDB per PDF, and embedded in exported PDFs). Coordinates are page points at
 // scale 1 with the origin at the top left.
 //   definitions: { id, term, color, text, highlight: [{ page, rects }], box: { page, rect } }
@@ -24,12 +24,21 @@ function emptyData() { return { version: 1, definitions: [], references: [] }; }
 // ---------- terms ----------
 
 const isLatex = t => /[\\^_{}$]/.test(t);
+// English phrases match case-insensitively and ignore plurals; symbols and LaTeX match exactly
+// (T is not t, \Sigma is not \sigma), ignoring spacing, braces around a single script, and how a
+// star or prime is written.
 function norm(t) {
-  let s = t.normalize("NFKC").toLowerCase().replace(/\$/g, "").replace(/\s+/g, " ").trim();
-  if (/^[a-z][a-z' -]*$/.test(s)) s = s.replace(/(ss|x|ch|sh)es$/, "$1").replace(/ies$/, "y").replace(/([^s])s$/, "$1");
-  return s;
+  const s = t.normalize("NFKC").replace(/\$/g, "").trim();
+  if (/^[A-Za-z][A-Za-z' -]{2,}$/.test(s)) {
+    return s.toLowerCase().replace(/\s+/g, " ").replace(/(ss|x|ch|sh)es$/, "$1").replace(/ies$/, "y").replace(/([^s])s$/, "$1");
+  }
+  return s.replace(/\s+/g, (m, at) => /\\[A-Za-z]+$/.test(s.slice(0, at)) && /^[A-Za-z]/.test(s.slice(at + m.length)) ? " " : "")
+    .replace(/\\ast(?![A-Za-z])/g, "*").replace(/\\prime(?![A-Za-z])/g, "'")
+    .replace(/([_^])\{(\\[A-Za-z]+|[^{}\\\s])\}/g, "$1$2")
+    .replace(/\^(\*|'+)/g, "$1");  // A^* is A*, f^' is f'
 }
-const isEnglishPhrase = t => t.length >= 3 && t.length <= 80 && /^[A-Za-z][A-Za-z'’ -]*[A-Za-z]$/.test(t);
+// Words only, at least one of three letters or more ("A b" is two symbols, not a phrase).
+const isEnglishPhrase = t => t.length <= 80 && /^[A-Za-z][A-Za-z'’ -]*[A-Za-z]$/.test(t) && /[A-Za-z]{3}/.test(t);
 
 function renderTerm(el, term) {
   el.textContent = "";
@@ -210,6 +219,11 @@ function drawAll() {
         stroke: "#2a6fdb", "stroke-dasharray": "3 2", "stroke-width": 0.8 }));
     }
   }
+  search.hits.forEach((h, i) => {
+    for (const r of h.rects) {
+      pages[h.page]?.overlay.append(svg("rect", { ...rectAttrs(r), fill: i === search.index ? "#ff8a00" : "#ffe14d", "fill-opacity": i === search.index ? 0.55 : 0.45 }));
+    }
+  });
   drawSidebar();
 }
 
@@ -316,13 +330,16 @@ addEventListener("mouseup", e => {
     drawAll();
     setStatus("Now drag a box around the term being defined · Shift-drag adds more text · Esc cancels", true);
   } else if (d.mode === "box") {
-    const rect = sel.rects[0], inside = boxText(d.p, rect);
+    const rect = sel.rects[0], inside = boxText(d.p, rect), english = isEnglishPhrase(inside);
+    let seen = null;
     openPrompt({
       x: e.clientX, y: e.clientY, kind: "def", label: "This passage defines:",
-      value: isEnglishPhrase(inside) ? inside : "",
+      value: english ? inside : "",
+      recognize: () => recognizeRegion(d.p, rect).then(r => (seen = r).readings),
       onDone: term => {
         d.preview.remove();
         if (!term) return;
+        if (seen) Symbols.learn(seen.glyphs, term);
         mutate(() => {
           data.definitions.push({ id: crypto.randomUUID(), term, color: colorFor(term), text: pending.text,
             highlight: pending.parts, box: { page: d.p.n, rect } });
@@ -332,13 +349,16 @@ addEventListener("mouseup", e => {
       },
     });
   } else {
-    const at = [d.p.n, sel.rects[0][1]];
+    const at = [d.p.n, sel.rects[0][1]], english = isEnglishPhrase(sel.text), region = symbolRegion(d, sel);
+    let seen = null;
     openPrompt({
       x: e.clientX, y: e.clientY, kind: "ref", at, label: "Refers to:",
-      value: isEnglishPhrase(sel.text) ? sel.text : "",
+      value: english ? sel.text : "",
+      recognize: region ? () => recognizeRegion(d.p, region).then(r => (seen = r).readings) : null,
       onDone: term => {
         d.preview.remove();
         if (!term) return;
+        if (seen) Symbols.learn(seen.glyphs, term);
         const ref = { id: crypto.randomUUID(), page: d.p.n, rects: sel.rects, text: sel.text, term };
         mutate(() => data.references.push(ref));
         const def = resolve(ref);
@@ -359,20 +379,45 @@ function dragResult(d) {
   return rect[3] - rect[1] > 2 ? { rects: [rect], text: "" } : null;
 }
 
+// Text of the characters mostly inside a box.
 function boxText(p, [x0, y0, x1, y1]) {
   const chars = (p.textData?.chars || []).filter(c => {
-    const cx = (c.x0 + c.x1) / 2, cy = (c.top + c.bottom) / 2;
-    return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+    const overlap = Math.min(c.x1, x1) - Math.max(c.x0, x0), cy = (c.top + c.bottom) / 2, slack = (c.bottom - c.top) * 0.2;
+    return overlap >= 0.5 * (c.x1 - c.x0) && cy >= y0 - slack && cy <= y1 + slack;
   });
   return chars.map((c, i) => (i && c.item !== chars[i - 1].item && !/\s$/.test(chars[i - 1].c) ? " " : "") + c.c)
     .join("").replace(/-\s+/g, "").replace(/\s+/g, " ").trim();
+}
+
+// ---------- symbol recognition ----------
+
+// Where to look for a symbol under an underline drag: the swept x-range on the selected line.
+function symbolRegion(d, sel) {
+  if (sel.rects.length !== 1) return null;
+  let [, y0, , y1] = sel.rects[0];
+  if (y1 - y0 < 6) { const cy = (y0 + y1) / 2; y0 = cy - 7; y1 = cy + 7; }
+  const padX = (y1 - y0) * 0.3, padY = (y1 - y0) * 0.15;
+  return [Math.min(d.start.x, d.end.x) - padX, y0 - padY, Math.max(d.start.x, d.end.x) + padX, y1 + padY];
+}
+
+// Renders part of a page at high resolution, with a margin so glyphs cut by the marked rectangle are
+// seen whole, and recognizes what is inside: { readings, glyphs }.
+async function recognizeRegion(p, [x0, y0, x1, y1]) {
+  const s = Math.min(10, Math.max(3, 120 / Math.max(y1 - y0, 1))), m = (y1 - y0) * 0.6;
+  const ex0 = Math.max(0, x0 - m), ey0 = Math.max(0, y0 - m), ex1 = Math.min(p.vp1.width, x1 + m), ey1 = Math.min(p.vp1.height, y1 + m);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil((ex1 - ex0) * s); canvas.height = Math.ceil((ey1 - ey0) * s);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await p.page.render({ canvasContext: ctx, viewport: p.page.getViewport({ scale: s, offsetX: -ex0 * s, offsetY: -ey0 * s }) }).promise;
+  return Symbols.recognize(canvas, [(x0 - ex0) * s, (y0 - ey0) * s, (x1 - ex0) * s, (y1 - ey0) * s]);
 }
 
 // ---------- term prompt ----------
 
 let promptState = null;
 function openPrompt(opts) {
-  promptState = { ...opts, active: -1, items: [] };
+  const st = promptState = { ...opts, active: -1, items: [], recognized: [], recognizing: !!opts.recognize, edited: false };
   const box = $("prompt"), input = $("prompt-input");
   $("prompt-label").textContent = opts.label;
   input.value = opts.value || "";
@@ -382,6 +427,23 @@ function openPrompt(opts) {
   box.style.top = Math.min(opts.y + 12, innerHeight - 330) + "px";
   input.focus(); input.select();
   updatePrompt();
+  // Fill in a reading of the symbol unless the user has started typing: an existing definition that a
+  // reading names (or, for terms of two or more symbols, begins with: the drag may catch a comma),
+  // else the best reading. It is selected, so typing replaces it.
+  opts.recognize?.().then(cands => {
+    if (promptState !== st) return;
+    st.recognized = cands.slice(0, 4);
+    st.recognizing = false;
+    const known = data.definitions.map(d => ({ term: d.term, key: norm(d.term), long: (Symbols.atoms(d.term)?.length || 0) > 1 }))
+      .sort((a, b) => b.key.length - a.key.length);
+    const named = c => {
+      const r = norm(c.latex);
+      return known.find(k => r === k.key || k.long && r.startsWith(k.key) && !/^[A-Za-z]/.test(r.slice(k.key.length)))?.term;
+    };
+    const pick = cands.map(named).find(Boolean) || cands[0]?.latex;
+    if (pick && !st.edited && !input.value) { input.value = pick; input.select(); }
+    updatePrompt();
+  }).catch(err => { console.warn("Symbol recognition failed:", err); if (promptState === st) { st.recognizing = false; updatePrompt(); } });
 }
 
 function closePrompt(term) {
@@ -396,27 +458,38 @@ function cancelPrompt() { closePrompt(null); }
 function updatePrompt() {
   const st = promptState, value = $("prompt-input").value.trim();
   renderTerm($("prompt-preview"), value);
-  // Suggestions: one per distinct term, filtered by what has been typed.
+  // Suggestions: readings of the symbol from the image, then one per distinct defined term, filtered
+  // by what has been typed.
   const terms = new Map();
   for (const d of data.definitions) if (!terms.has(norm(d.term))) terms.set(norm(d.term), d);
-  const q = norm(value);
-  st.items = [...terms.values()].filter(d => !q || norm(d.term).includes(q) || d.term.toLowerCase().includes(value.toLowerCase()))
+  const q = norm(value), lower = value.toLowerCase();
+  const matches = t => !q || norm(t).includes(q) || t.toLowerCase().includes(lower);
+  const recognized = st.recognized.filter(c => matches(c.latex)).map(c => {
+    const d = terms.get(norm(c.latex));
+    return { term: c.latex, color: d?.color, meta: d ? `from image · p. ${d.box.page}` : "from image" };
+  });
+  const defined = [...terms.values()].filter(d => matches(d.term) && !recognized.some(r => norm(r.term) === norm(d.term)))
     .sort((a, b) => (norm(a.term) === q ? -1 : 0) - (norm(b.term) === q ? -1 : 0) || norm(a.term).indexOf(q) - norm(b.term).indexOf(q))
-    .slice(0, 30);
+    .map(d => ({ term: d.term, color: d.color, meta: "p. " + d.box.page }));
+  st.items = [...recognized, ...defined].slice(0, 30);
   st.active = Math.min(st.active, st.items.length - 1);
-  $("prompt-suggest").replaceChildren(...st.items.map((d, i) => {
+  $("prompt-suggest").replaceChildren(...st.items.map((it, i) => {
     const li = document.createElement("li");
     li.className = i === st.active ? "active" : "";
     li.innerHTML = '<span class="sw"></span><span class="t"></span><span class="meta"></span>';
-    li.querySelector(".sw").style.background = d.color;
-    renderTerm(li.querySelector(".t"), d.term);
-    li.querySelector(".meta").textContent = "p. " + d.box.page;
-    li.onmousedown = e => { e.preventDefault(); closePrompt(d.term); };
+    if (it.color) li.querySelector(".sw").style.background = it.color;
+    else li.querySelector(".sw").classList.add("none");
+    renderTerm(li.querySelector(".t"), it.term);
+    li.querySelector(".meta").textContent = it.meta;
+    li.onmousedown = e => { e.preventDefault(); closePrompt(it.term); };
     return li;
   }));
   const chosen = st.active >= 0 ? st.items[st.active].term : value;
   const m = $("prompt-match");
-  if (!chosen) { m.textContent = st.kind === "ref" ? "Type a term or pick a definition" : "Type the symbol or phrase (LaTeX ok)"; return; }
+  if (!chosen) {
+    m.textContent = st.recognizing ? "Reading the symbol…" : st.kind === "ref" ? "Type a term or pick a definition" : "Type the symbol or phrase (LaTeX ok)";
+    return;
+  }
   if (st.kind === "ref") {
     const def = resolve({ term: chosen, page: st.at[0], rects: [[0, st.at[1]]] });
     m.innerHTML = def ? '→ links to <span class="sw"></span><span class="t"></span> (p. ' + def.box.page + ")" : "No matching definition yet — will be saved unlinked";
@@ -428,7 +501,7 @@ function updatePrompt() {
   }
 }
 
-$("prompt-input").addEventListener("input", () => { promptState.active = -1; updatePrompt(); });
+$("prompt-input").addEventListener("input", () => { promptState.active = -1; promptState.edited = true; updatePrompt(); });
 $("prompt-input").addEventListener("keydown", e => {
   const st = promptState;
   if (!st) return;
@@ -656,6 +729,72 @@ async function stripExport(bytes) {
   return doc.save();
 }
 
+// ---------- search ----------
+
+let search = { query: "", hits: [], index: -1 };  // hits: [{ page, rects }] in reading order
+
+function firstVisiblePage() {
+  return pages.slice(1).find(p => p.el.offsetTop + p.el.offsetHeight > viewer.scrollTop)?.n || 1;
+}
+
+async function runSearch(query) {
+  search = { query, hits: [], index: -1 };
+  if (query.trim()) {
+    $("search-count").textContent = "…";
+    for (const p of pages.slice(1)) {
+      const t = await loadText(p);
+      if (search.query !== query) return;  // a newer search started
+      for (const rects of t.find(query)) search.hits.push({ page: p.n, rects });
+    }
+    const from = firstVisiblePage();
+    search.index = search.hits.length ? Math.max(0, search.hits.findIndex(h => h.page >= from)) : -1;
+  }
+  drawAll();
+  showHit();
+}
+
+function showHit() {
+  const { hits, index, query } = search;
+  $("search-count").textContent = !query.trim() ? "" : hits.length ? `${index + 1} / ${hits.length}` : "No matches";
+  const h = hits[index];
+  if (h) viewer.scrollTop = pages[h.page].el.offsetTop + h.rects[0][1] * scale - viewer.clientHeight / 3;
+}
+
+function stepHit(dir) {
+  if (!search.hits.length) return;
+  search.index = (search.index + dir + search.hits.length) % search.hits.length;
+  drawAll();
+  showHit();
+}
+
+function openSearch() {
+  if (!pdf) return;
+  $("search").hidden = false;
+  $("search-input").focus();
+  $("search-input").select();
+}
+function closeSearch() {
+  $("search").hidden = true;
+  search = { query: "", hits: [], index: -1 };
+  drawAll();
+}
+
+let searchTimer = null;
+$("search-input").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => runSearch($("search-input").value), 200);
+});
+$("search-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (search.query !== $("search-input").value) { clearTimeout(searchTimer); runSearch($("search-input").value); }
+    else stepHit(e.shiftKey ? -1 : 1);
+  } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeSearch(); }
+});
+$("search-next").onclick = () => stepHit(1);
+$("search-prev").onclick = () => stepHit(-1);
+$("search-close").onclick = closeSearch;
+
 // ---------- toolbar & keys ----------
 
 function setStatus(msg, mode = false) { $("status").textContent = msg; $("status").classList.toggle("mode", mode); }
@@ -675,8 +814,9 @@ $("export").onclick = exportPdf;
 $("back").onclick = goBack;
 
 addEventListener("keydown", e => {
-  if (e.target.closest?.("#prompt")) return;
   const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "f" && !e.target.closest?.("#prompt")) { e.preventDefault(); openSearch(); return; }
+  if (e.target.closest?.("#prompt, #search")) return;
   if (e.key === "Escape") {
     hideMenu();
     if (drag) { drag.preview.remove(); drag = null; }
