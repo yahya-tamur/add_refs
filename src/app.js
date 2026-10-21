@@ -1,10 +1,10 @@
-/* global pdfjsLib, katex, PDFLib, PageText, files */
-// Annotation model (saved next to the PDF as "<name>.refs.json"). Coordinates are page points at
+/* global pdfjsLib, katex, PDFLib, PageText, store, download */
+// Annotation model (kept in IndexedDB per PDF, saved as "<name>.refs.json"). Coordinates are page points at
 // scale 1 with the origin at the top left, the same as the sidecars viewer.html reads.
 //   definitions: { id, term, color, text, highlight: [{ page, rects }], box: { page, rect } }
 //   references:  { id, page, rects, text, term }   — linked to the nearest preceding definition of term
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "../node_modules/pdfjs-dist/build/pdf.worker.min.js";
+pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
 const SVGNS = "http://www.w3.org/2000/svg";
 const PALETTE = ["#f2b705", "#2a9df4", "#3cb371", "#e8559a", "#ff8c1a", "#8e5cd9", "#17b8b0", "#d64545", "#7a9a01", "#a0522d"];
 const UNRESOLVED = "#8a8a8a";
@@ -12,7 +12,8 @@ const UNRESOLVED = "#8a8a8a";
 const $ = id => document.getElementById(id);
 const viewer = $("viewer"), pagesEl = $("pages");
 
-let pdfPath = null, pdfBytes = null, pdf = null;
+let docName = null, docKey = null, pdfBytes = null, pdf = null;
+let refsHandle = null; // .refs.json file chosen with "Save annotations" where the browser can write to it
 let pages = [];        // 1-based: { n, page, vp1, el, canvas, overlay, hits, renderedScale, task, textData }
 let data = emptyData();
 let scale = 1.5;
@@ -71,9 +72,32 @@ function changed() {
   drawAll();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    try { await files.saveAnnotations(pdfPath, data); setStatus("Saved"); }
-    catch (e) { setStatus("Save failed: " + e.message); }
+    try {
+      await store.set(docKey, data);
+      if (refsHandle) await writeRefs();
+      setStatus(refsHandle ? `Saved to ${refsHandle.name}` : "Saved in this browser");
+    } catch (e) { setStatus("Save failed: " + e.message); }
   }, 300);
+}
+async function writeRefs() {
+  const w = await refsHandle.createWritable();
+  await w.write(JSON.stringify(data, null, 1));
+  await w.close();
+}
+// Chromium browsers write to a chosen file (and keep autosaving there); others download a copy.
+async function saveRefsFile() {
+  if (!pdf) return;
+  const name = docName + ".refs.json";
+  if (window.showSaveFilePicker) {
+    try {
+      refsHandle ||= await showSaveFilePicker({ suggestedName: name, types: [{ description: "Annotations", accept: { "application/json": [".json"] } }] });
+    } catch { return; }  // picker cancelled
+    await writeRefs();
+    setStatus(`Saved to ${refsHandle.name}; later changes are saved there too`);
+  } else {
+    download(name, JSON.stringify(data, null, 1), "application/json");
+    setStatus("Downloaded " + name);
+  }
 }
 function undo() {
   if (!undoStack.length) return;
@@ -84,16 +108,21 @@ function undo() {
 
 // ---------- loading & rendering ----------
 
-async function openFile(path) {
-  const res = await files.loadPdf(path);
-  pdfPath = path; pdfBytes = res.bytes.slice();
-  data = res.annotations || emptyData();
-  undoStack.length = backStack.length = 0; pending = null; updateBack();
+// Annotations come from `refs` when the user chose a file; otherwise from this browser's copy for
+// this PDF, falling back to `refs` (e.g. from a ?refs= URL) when there is none.
+async function openPdf(name, bytes, refs = null, { preferStored = false } = {}) {
+  pdfBytes = bytes.slice();
   pdf?.destroy();
-  pdf = await pdfjsLib.getDocument({ data: res.bytes, isEvalSupported: false }).promise;
-  $("file").textContent = path.split(/[\\/]/).pop();
-  document.title = $("file").textContent + " — Add Refs";
-  $("export").disabled = false;
+  pdf = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false }).promise;
+  docName = name.replace(/\.pdf$/i, ""); docKey = "refs:" + pdf.fingerprints[0]; refsHandle = null;
+  const stored = await store.get(docKey).catch(() => null);
+  data = (preferStored ? stored || refs : refs || stored) || emptyData();
+  if (refs && data === refs) store.set(docKey, data).catch(() => {});
+  store.set("last", { name, bytes: pdfBytes }).catch(() => {});
+  undoStack.length = backStack.length = 0; pending = null; updateBack();
+  $("file").textContent = name;
+  document.title = name + " — Add Refs";
+  $("export").disabled = $("save").disabled = false;
   pagesEl.innerHTML = ""; pages = [];
   observer.disconnect(); visible.clear();
   for (let n = 1; n <= pdf.numPages; n++) {
@@ -517,9 +546,7 @@ function refMenu(e, r) {
 // ---------- export ----------
 
 async function exportPdf() {
-  if (!pdfPath) return;
-  const out = await files.exportDialog(pdfPath);
-  if (!out) return;
+  if (!pdf) return;
   setStatus("Exporting…");
   const { PDFDocument, PDFName, PDFNull, rgb, BlendMode } = PDFLib;
   const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
@@ -556,16 +583,39 @@ async function exportPdf() {
       page.node.addAnnot(doc.context.register(annot));
     }
   }
-  await files.writeExport(out, await doc.save(), sidecar);
-  setStatus("Exported " + out.split(/[\\/]/).pop());
+  // The sidecar is the format math 610 papers/highlighted/viewer.html reads next to "<name> (refs).pdf".
+  download(docName + " (refs).pdf", await doc.save(), "application/pdf");
+  download(docName + " (refs).json", JSON.stringify(sidecar, null, 1), "application/json");
+  setStatus(`Downloaded ${docName} (refs).pdf and its .json sidecar`);
 }
 
 // ---------- toolbar & keys ----------
 
 function setStatus(msg, mode = false) { $("status").textContent = msg; $("status").classList.toggle("mode", mode); }
 
-async function pickFile() { const p = await files.openDialog(); if (p) openFile(p); }
+const isRefs = r => Array.isArray(r?.definitions) && Array.isArray(r?.references);
+
+// A PDF, optionally with its .refs.json; a .refs.json alone loads onto the open PDF.
+async function openFiles(list) {
+  const fileList = [...list];
+  const pdfFile = fileList.find(f => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
+  const refsFile = fileList.find(f => /\.json$/i.test(f.name));
+  let refs = null;
+  if (refsFile) {
+    try { refs = JSON.parse(await refsFile.text()); } catch { refs = null; }
+    if (!isRefs(refs)) { setStatus(`${refsFile.name} is not an annotations file`); refs = null; }
+  }
+  try {
+    if (pdfFile) await openPdf(pdfFile.name, new Uint8Array(await pdfFile.arrayBuffer()), refs);
+    else if (refs && pdf) { mutate(() => { data = refs; }); setStatus("Loaded " + refsFile.name); }
+  } catch (e) { setStatus("Could not open: " + e.message); }
+}
+const pickFile = () => $("picker").click();
+$("picker").onchange = () => { openFiles($("picker").files); $("picker").value = ""; };
 $("open").onclick = pickFile;
+$("save").onclick = saveRefsFile;
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("drop", e => { e.preventDefault(); openFiles(e.dataTransfer.files); });
 $("export").onclick = exportPdf;
 $("back").onclick = goBack;
 
@@ -578,6 +628,7 @@ addEventListener("keydown", e => {
     else if (pending) { pending = null; drawAll(); setStatus("Definition cancelled"); }
   } else if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
   else if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); pickFile(); }
+  else if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); saveRefsFile(); }
   else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); exportPdf(); }
   else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); setScale(scale * 1.15); }
   else if (mod && e.key === "-") { e.preventDefault(); setScale(scale / 1.15); }
@@ -591,7 +642,22 @@ viewer.addEventListener("wheel", e => {
 }, { passive: false });
 
 (async () => {
-  const f = await files.initialFile();
-  if (f) openFile(f).catch(err => setStatus("Could not open: " + err.message));
-  else setStatus("Open a PDF to start");
+  // ?pdf=<url>[&refs=<url>] opens a hosted paper; otherwise reopen the last PDF from this browser.
+  const params = new URLSearchParams(location.search);
+  try {
+    const url = params.get("pdf");
+    if (url) {
+      setStatus("Loading…");
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
+      const refsUrl = params.get("refs");
+      const refs = refsUrl ? await fetch(refsUrl).then(r => r.ok ? r.json() : null).catch(() => null) : null;
+      await openPdf(decodeURIComponent(new URL(url, location.href).pathname.split("/").pop()),
+        new Uint8Array(await res.arrayBuffer()), isRefs(refs) ? refs : null, { preferStored: true });
+      return;
+    }
+    const last = await store.get("last").catch(() => null);
+    if (last) await openPdf(last.name, last.bytes);
+    else setStatus("Open a PDF (or drop one here) to start");
+  } catch (e) { setStatus("Could not open: " + e.message); }
 })();
