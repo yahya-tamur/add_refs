@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src 'self' https: blob: data:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:">
+      content="default-src 'self'; connect-src 'self' https: blob: data:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:">
 <title>Add Refs</title>
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="style.css">
@@ -35,6 +35,7 @@
       <p>Then drag a box around the symbol or phrase being defined and type it, e.g. <code>simple equivalence</code> or <code>\Sigma_{ij}</code>.</p>
       <p>Drag over a later use of a term to underline it. Type the term; if it matches a definition, it becomes a link in that definition's colour.</p>
       <p>Boxes and underlines over an English phrase fill it in for you; over a symbol, the app reads it from the page image and suggests LaTeX (e.g. <code>\Sigma_{\Lambda}</code>).</p>
+      <p>Scanned PDFs without a text layer are read with OCR in the background the first time they are opened (progress in the status bar).</p>
       <p>Annotations autosave in this browser. <b>Export PDF</b> saves a copy with the marks and links that any viewer can show; open that copy here to keep editing.</p>
       <p>Click a link to jump; <kbd>Alt</kbd>+<kbd>←</kbd> goes back. Right-click a mark to edit or delete it. <kbd>Esc</kbd> cancels, <kbd>Ctrl</kbd>+<kbd>F</kbd> searches, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+wheel zooms.</p>
     </details>
@@ -58,6 +59,7 @@
 <script src="storage.js"></script>
 <script src="text.js"></script>
 <script src="symbols.js"></script>
+<script src="ocr.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -18,6 +18,11 @@ To build locally: `npm install && npm run build` writes the site to `dist/`;
 - `index.html?pdf=<url>` opens a hosted paper (same site, or a server that allows CORS). If this
   browser already has annotations for that PDF, they take precedence over ones embedded in it.
 - The last PDF reopens automatically.
+- Scanned PDFs without a text layer are read with OCR ([tesseract.js](https://github.com/naptha/tesseract.js),
+  English, in the browser) the first time they are opened: pages are read in the background, about
+  2–3 s each, the one you work on first, and the result is kept in this browser so reopening is instant.
+  The OCR files (~14 MB) are only downloaded for such PDFs. Symbols are read by the image recognition
+  below rather than by the OCR.
 
 ## Annotating
 

@@ -1,4 +1,4 @@
-/* global pdfjsLib, katex, PDFLib, PageText, PageInk, Symbols, store, chooseSaveTarget */
+/* global pdfjsLib, katex, PDFLib, PageText, PageInk, Symbols, Ocr, store, chooseSaveTarget */
 // Annotation model (kept in IndexedDB per PDF, and embedded in exported PDFs). Coordinates are page points at
 // scale 1 with the origin at the top left.
 //   definitions: { id, term, color, text, highlight: [{ page, rects }], box: { page, rect } }
@@ -133,13 +133,14 @@ async function openPdf(name, bytes, { preferStored = false } = {}) {
     label.className = "label"; label.textContent = "PDF page " + n;
     el.append(canvas, overlay, hits, label);
     pagesEl.append(el);
-    pages[n] = { n, page, vp1, el, canvas, overlay, hits, renderedScale: 0 };
+    pages[n] = { n, page, vp1, el, canvas, overlay, hits, renderedScale: 0, doc: pdf.fingerprints[0] };
     sizePage(pages[n]);
     observer.observe(el);
   }
   viewer.scrollTop = 0;
   drawAll();
   setStatus(`${data.definitions.length} definitions, ${data.references.length} references`);
+  ocrInBackground(pdf);
 }
 
 function sizePage(p) {
@@ -179,7 +180,46 @@ function setScale(s) {
   for (const p of visible) renderPage(p);
 }
 
-const loadText = p => p.textPromise ||= PageText.load(p.page).then(t => (p.textData = t));
+// A page's text: its text layer, or, for a scanned page without one, OCR (cached in this browser).
+const loadText = p => p.textPromise ||= PageText.load(p.page).then(async t => {
+  if (t.chars.filter(c => c.c.trim()).length < 20) t = await ocrText(p);
+  return (p.textData = t);
+});
+
+let ocrQueue = Promise.resolve();  // one page at a time, in request order
+async function ocrText(p) {
+  const key = `ocr1:${p.doc}:${p.n}`;
+  const cached = await store.get(key).catch(() => null);
+  if (cached) return Object.assign(new PageText(Ocr.unpack(cached)), { ocr: true });
+  const job = ocrQueue.then(() => Ocr.readPage(p.page));
+  ocrQueue = job.catch(() => {});
+  try {
+    const chars = await job;
+    store.set(key, Ocr.pack(chars)).catch(() => {});
+    return Object.assign(new PageText(chars), { ocr: true });
+  } catch (e) {
+    console.warn("OCR failed on page", p.n, e);
+    setStatus("Text recognition (OCR) failed: " + e.message);
+    return Object.assign(new PageText([]), { ocr: true });
+  }
+}
+
+// If the PDF is a scan without text, read every page in the background, starting from the one in
+// view; pages the user works on are read first anyway (loadText queues them right away).
+async function ocrInBackground(doc) {
+  const probe = await Promise.all(pages.slice(1, 4).map(p => p.page.getTextContent()));
+  if (!probe.some(c => c.items.map(i => i.str).join("").trim().length < 20)) return;
+  const start = firstVisiblePage(), order = [...pages.slice(start), ...pages.slice(1, start)];
+  let done = 0;
+  for (const p of order) {
+    if (pdf !== doc) return;
+    if (!p.textPromise) setStatus(`Reading the scanned text (OCR): page ${p.n}, ${done} of ${order.length} done`);
+    await loadText(p);
+    done++;
+    if (pdf !== doc) return;
+  }
+  setStatus(`Text recognized on all ${order.length} pages`);
+}
 
 // Page ink for aligning the text layer and snapping selections, kept for the few most recently used
 // pages (a few MB each).

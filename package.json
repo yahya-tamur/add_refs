@@ -8,8 +8,10 @@
     "serve": "node build.mjs && python3 -m http.server 8612 --bind 127.0.0.1 --directory dist"
   },
   "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
     "katex": "^0.16.11",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "3.11.174"
+    "pdfjs-dist": "3.11.174",
+    "tesseract.js": "^5.1.1"
   }
 }

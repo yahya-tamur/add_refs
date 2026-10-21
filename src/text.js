@@ -55,8 +55,11 @@ class PageText {
     const forward = s.index <= e.index;
     let i0 = forward ? s.index : e.index, i1 = forward ? e.index : s.index;
     // whole words at both ends, like the ink-snapped marks
-    const word = (i, j) => this.chars[j] && /[\p{L}\p{N}]/u.test(this.chars[i].c) && /[\p{L}\p{N}]/u.test(this.chars[j].c)
-      && Math.abs(this.chars[i].base - this.chars[j].base) < this.chars[i].size * 0.6;
+    const word = (i, j) => {
+      const a = this.chars[i], b = this.chars[j];
+      return b && /[\p{L}\p{N}]/u.test(a.c) && /[\p{L}\p{N}]/u.test(b.c) && Math.abs(a.base - b.base) < a.size * 0.6
+        && Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1) < a.size * 0.15;  // no word space between (OCR text has no space characters)
+    };
     while (word(i0, i0 - 1)) i0--;
     while (word(i1, i1 + 1)) i1++;
     const run = this.chars.slice(i0, i1 + 1);
