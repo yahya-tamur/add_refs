@@ -64,5 +64,7 @@ slightly offset from the image.
 - **Export PDF** (Ctrl+S / Ctrl+E) asks where to save `paper (refs).pdf` (Chrome/Edge; Firefox and
   Safari put it in the downloads folder unless set to ask): highlights, boxes and underlines
   painted into the pages, real link annotations, and the annotation data as an attached
-  `add-refs.json`. It reads in any PDF viewer, and opening it here again strips the painted marks and
+  `add-refs.json`. For scanned pages, the OCR text is written in as an invisible text layer over the
+  scan, so other viewers can search and copy it (Latin characters only; export waits for any pages
+  still being read). It reads in any PDF viewer, and opening it here again strips the painted marks and
   links and continues editing. Unlinked references are kept in the data but not drawn.

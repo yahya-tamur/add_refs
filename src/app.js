@@ -13,6 +13,7 @@ const $ = id => document.getElementById(id);
 const viewer = $("viewer"), pagesEl = $("pages");
 
 let docName = null, docKey = null, pdfBytes = null, pdf = null;
+let docId = null;      // the PDF's fingerprint as first opened; it keys annotations and the OCR cache
 let pages = [];        // 1-based: { n, page, vp1, el, canvas, overlay, hits, renderedScale, task, textData }
 let data = emptyData();
 let scale = 1.5;
@@ -98,8 +99,9 @@ function undo() {
 
 // A PDF exported by this app carries its annotations; opening it strips the painted marks so editing
 // continues on the clean pages. Embedded annotations win over this browser's copy, except for
-// hosted papers (?pdf=), where the reader's own edits are kept.
-async function openPdf(name, bytes, { preferStored = false } = {}) {
+// hosted papers (?pdf=), where the reader's own edits are kept. The original fingerprint travels with
+// exports (`source`) and the reopened copy (`id`), since stripping an export can change it.
+async function openPdf(name, bytes, { preferStored = false, id = null } = {}) {
   pdf?.destroy();
   pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
   const embedded = await embeddedRefs(pdf);
@@ -110,11 +112,13 @@ async function openPdf(name, bytes, { preferStored = false } = {}) {
     pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
   }
   pdfBytes = bytes;
-  docName = name.replace(/\.pdf$/i, ""); docKey = "refs:" + pdf.fingerprints[0];
+  docId = embedded?.source || id || pdf.fingerprints[0];
+  if (embedded) delete embedded.source;
+  docName = name.replace(/\.pdf$/i, ""); docKey = "refs:" + docId;
   const stored = await store.get(docKey).catch(() => null);
   data = (preferStored ? stored || embedded : embedded || stored) || emptyData();
   if (embedded && data === embedded) store.set(docKey, data).catch(() => {});
-  store.set("last", { name, bytes: pdfBytes }).catch(() => {});
+  store.set("last", { name, bytes: pdfBytes, id: docId }).catch(() => {});
   undoStack.length = backStack.length = 0; pending = null; updateBack();
   $("file").textContent = name;
   document.title = name + " — Add Refs";
@@ -133,7 +137,7 @@ async function openPdf(name, bytes, { preferStored = false } = {}) {
     label.className = "label"; label.textContent = "PDF page " + n;
     el.append(canvas, overlay, hits, label);
     pagesEl.append(el);
-    pages[n] = { n, page, vp1, el, canvas, overlay, hits, renderedScale: 0, doc: pdf.fingerprints[0] };
+    pages[n] = { n, page, vp1, el, canvas, overlay, hits, renderedScale: 0, doc: docId };
     sizePage(pages[n]);
     observer.observe(el);
   }
@@ -690,7 +694,17 @@ async function exportPdf() {
   if (!target) return;
   setStatus("Exporting…");
   let bytes;
-  try { bytes = await exportBytes(); }
+  try {
+    // Scanned pages still waiting for OCR are read first, so the export carries all their text.
+    let left = pages.slice(1).filter(p => !p.textData).length;
+    if (left) setStatus(`Exporting… waiting for text recognition (${left} pages)`);
+    await Promise.all(pages.slice(1).map(p => loadText(p).then(() => {
+      left--;
+      if (left) setStatus(`Exporting… waiting for text recognition (${left} pages)`);
+    })));
+    setStatus("Exporting…");
+    bytes = await exportBytes();
+  }
   catch (e) { target.abort(); setStatus("Export failed: " + e.message); return; }
   try { await target.write(bytes); setStatus(target.done); }
   catch (e) { target.abort(); setStatus("Export failed: " + e.message); }
@@ -733,13 +747,14 @@ async function exportBytes() {
       page.node.addAnnot(doc.context.register(annot));
     }
   }
-  // Tag the content streams drawing added (the marks plus pdf-lib's q/Q wrappers).
+  await addOcrText(doc, docPages, MARK);
+  // Tag the content streams drawing added (the marks, OCR text and pdf-lib's q/Q wrappers).
   docPages.forEach((page, i) => {
     for (const ref of rawContents(doc, page)) {
       if (!before[i].has(String(ref))) doc.context.lookup(ref).dict.set(MARK, PDFBool.True);
     }
   });
-  await doc.attach(new TextEncoder().encode(JSON.stringify(data)), ATTACHMENT, {
+  await doc.attach(new TextEncoder().encode(JSON.stringify({ ...data, source: docId })), ATTACHMENT, {
     mimeType: "application/json", description: "Add Refs annotations (open this PDF in Add Refs to edit them)",
   });
   return doc.save();
@@ -751,6 +766,45 @@ function rawContents(doc, page) {
   return obj instanceof PDFLib.PDFArray ? obj.asArray() : ref ? [ref] : [];
 }
 
+// Invisible text over OCR'd pages (render mode 3, each word stretched over its printed image), so
+// other viewers can search and copy the scanned text. Helvetica's encoding covers Latin text; other
+// characters (OCR's guesses at symbols, mostly) are left out.
+async function addOcrText(doc, docPages, MARK) {
+  const ocrPages = pages.slice(1).filter(p => p.textData?.ocr && p.textData.chars.length);
+  if (!ocrPages.length) return;
+  const { StandardFonts, PDFBool, PDFDict, TextRenderingMode, beginText, endText, setFontAndSize, setTextRenderingMode,
+    setCharacterSqueeze, setTextMatrix, showText } = PDFLib;
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const encodable = new Map();
+  const ok = ch => {
+    if (!encodable.has(ch)) { try { font.encodeText(ch); encodable.set(ch, true); } catch { encodable.set(ch, false); } }
+    return encodable.get(ch);
+  };
+  for (const p of ocrPages) {
+    const page = docPages[p.n - 1], words = [];
+    for (const ch of p.textData.chars) {
+      const w = words.at(-1);
+      if (w && w.item === ch.item) { w.text += ch.c; w.x1 = Math.max(w.x1, ch.x1); }
+      else words.push({ item: ch.item, text: ch.c, x0: ch.x0, x1: ch.x1, base: ch.base, size: ch.size });
+    }
+    page.setFont(font);
+    const ops = [beginText(), setFontAndSize(page.fontKey, 10), setTextRenderingMode(TextRenderingMode.Invisible)];
+    for (const w of words) {
+      const text = [...w.text].filter(ok).join("");
+      if (!text.trim()) continue;
+      const [x, y] = p.vp1.convertToPdfPoint(w.x0, w.base), [x2] = p.vp1.convertToPdfPoint(w.x1, w.base);
+      const natural = font.widthOfTextAtSize(text, w.size);
+      if (natural <= 0 || x2 <= x) continue;
+      ops.push(setFontAndSize(page.fontKey, w.size), setCharacterSqueeze(100 * (x2 - x) / natural), setTextMatrix(1, 0, 0, 1, x, y), showText(font.encodeText(text)));
+    }
+    ops.push(endText());
+    page.pushOperators(...ops);
+  }
+  // Embed the font now and tag it; encoding text marks it for re-embedding, so this comes last.
+  await font.embed();
+  doc.context.lookup(font.ref, PDFDict).set(MARK, PDFBool.True);
+}
+
 async function embeddedRefs(doc) {
   const att = Object.values(await doc.getAttachments() || {}).find(a => a.filename === ATTACHMENT);
   if (!att) return null;
@@ -760,7 +814,8 @@ async function embeddedRefs(doc) {
   } catch { return null; }
 }
 
-// Undo an export: delete tagged content streams and links, pdf-lib's opacity states, and the attachment.
+// Undo an export: delete tagged content streams (marks, OCR text) and links, pdf-lib's opacity states,
+// the OCR text's font, and the attachment.
 // Pages are edited through their raw entries; pdf-lib's normalizing accessors would add new q/Q streams.
 async function stripExport(bytes) {
   const { PDFDocument, PDFName, PDFArray, PDFDict, PDFRef } = PDFLib;
@@ -787,6 +842,8 @@ async function stripExport(bytes) {
       const d = doc.context.lookup(val);
       if (/^GS-\d+$/.test(key.decodeText()) && d?.has?.(PDFName.of("BM"))) { del(val); gs.delete(key); }
     }
+    const fonts = page.node.Resources()?.lookupMaybe(PDFName.of("Font"), PDFDict);  // the OCR text's font
+    for (const [key, val] of fonts?.entries() || []) if (tagged(val)) { del(val); fonts.delete(key); }
   }
   const names = doc.catalog.lookupMaybe(PDFName.of("Names"), PDFDict)
     ?.lookupMaybe(PDFName.of("EmbeddedFiles"), PDFDict)?.lookupMaybe(PDFName.of("Names"), PDFArray);
@@ -954,7 +1011,7 @@ viewer.addEventListener("wheel", e => {
       return;
     }
     const last = await store.get("last").catch(() => null);
-    if (last) await openPdf(last.name, last.bytes);
+    if (last) await openPdf(last.name, last.bytes, { id: last.id });
     else setStatus("Open a PDF (or drop one here) to start");
   } catch (e) { setStatus("Could not open: " + e.message); }
 })();
