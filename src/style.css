@@ -45,7 +45,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
 .page svg.hits { position: absolute; inset: 0; width: 100%; height: 100%; }
 .page.creating { cursor: crosshair; }
 .hit { fill: transparent; cursor: pointer; }
-.hit.def { cursor: help; }
+.hit.def { cursor: default; }
 .flash { animation: flash 1.4s; }
 @keyframes flash { 0%, 40% { opacity: 1; stroke-width: 4; } 100% { stroke-width: 0; } }
 
@@ -66,6 +66,3 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
 #menu { position: fixed; z-index: 30; background: var(--popup); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.25); padding: 4px; }
 #menu div { padding: 4px 14px; border-radius: 4px; cursor: pointer; }
 #menu div:hover { background: var(--bg); }
-#tip { position: fixed; z-index: 25; pointer-events: none; background: var(--popup); border: 1px solid var(--line); border-radius: 6px;
-       box-shadow: 0 3px 12px rgba(0,0,0,.2); padding: 5px 8px; max-width: 380px; font-size: 13px; }
-#tip .ctx { color: var(--muted); font-size: 12px; margin-top: 3px; }

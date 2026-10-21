@@ -364,7 +364,6 @@ addEventListener("mousemove", e => {
   const pt = pagePoint(drag.p, e);
   if (!drag.moved && Math.hypot(pt.x - drag.start.x, pt.y - drag.start.y) * scale < 4) return;
   drag.moved = true; drag.end = pt;
-  hideTip();
   const sel = dragResult(drag);
   drag.preview.replaceChildren(...(sel?.rects || []).map(r => drag.mode === "underline"
     ? svg("line", { x1: r[0], x2: r[2], y1: underlineY(r), y2: underlineY(r), stroke: "#2a6fdb", "stroke-width": 1.4 })
@@ -606,48 +605,22 @@ $("prompt-input").addEventListener("keydown", e => {
   }
 });
 
-// ---------- hover tips & context menu ----------
+// ---------- context menu ----------
 
-function hoveredItem(target) {
+function markOf(target) {
   if (target.dataset?.ref) return { ref: data.references.find(r => r.id === target.dataset.ref) };
   if (target.dataset?.def) return { def: data.definitions.find(d => d.id === target.dataset.def) };
   return null;
 }
 
-viewer.addEventListener("mouseover", e => {
-  if (drag) return;
-  const it = hoveredItem(e.target);
-  if (!it) return;
-  const tip = $("tip");
-  tip.replaceChildren();
-  const head = document.createElement("div"), ctx = document.createElement("div");
-  ctx.className = "ctx";
-  if (it.ref) {
-    const d = resolve(it.ref);
-    renderTerm(head, it.ref.term);
-    ctx.textContent = d ? `Defined on p. ${d.box.page}: ${clip(d.text)} — click to jump` : "No definition yet";
-  } else if (it.def) {
-    renderTerm(head, it.def.term);
-    ctx.textContent = "Definition: " + clip(it.def.text);
-  }
-  tip.append(head, ctx);
-  tip.hidden = false;
-  tip.style.left = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8) + "px";
-  tip.style.top = Math.min(e.clientY + 16, innerHeight - tip.offsetHeight - 8) + "px";
-});
-viewer.addEventListener("mouseout", e => { if (hoveredItem(e.target)) hideTip(); });
-const hideTip = () => { $("tip").hidden = true; };
-const clip = t => !t ? "" : t.length > 160 ? t.slice(0, 160) + "…" : t;
-
 viewer.addEventListener("contextmenu", e => {
-  const it = hoveredItem(e.target);
+  const it = markOf(e.target);
   if (it?.ref) refMenu(e, it.ref);
   else if (it?.def) defMenu(e, it.def);
 });
 
 function showMenu(e, items) {
   e.preventDefault();
-  hideTip();
   const m = $("menu");
   m.replaceChildren(...items.map(([label, fn]) => {
     const d = document.createElement("div");
