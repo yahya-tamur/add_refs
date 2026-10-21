@@ -1,4 +1,4 @@
-/* global pdfjsLib, katex, PDFLib, PageText, Symbols, store, chooseSaveTarget */
+/* global pdfjsLib, katex, PDFLib, PageText, PageInk, Symbols, store, chooseSaveTarget */
 // Annotation model (kept in IndexedDB per PDF, and embedded in exported PDFs). Coordinates are page points at
 // scale 1 with the origin at the top left.
 //   definitions: { id, term, color, text, highlight: [{ page, rects }], box: { page, rect } }
@@ -178,6 +178,21 @@ function setScale(s) {
 
 const loadText = p => p.textPromise ||= PageText.load(p.page).then(t => (p.textData = t));
 
+// Page ink for aligning the text layer and snapping selections, kept for the few most recently used
+// pages (a few MB each).
+const inkPages = [];
+function loadInk(p) {
+  if (!p.inkPromise) {
+    p.inkPromise = Promise.all([PageInk.load(p.page), loadText(p)]).then(([ink, text]) => {
+      text.align(ink);
+      return (p.inkData = ink);
+    });
+    inkPages.push(p);
+    while (inkPages.length > 4) { const old = inkPages.shift(); old.inkPromise = old.inkData = null; }
+  }
+  return p.inkPromise;
+}
+
 // ---------- drawing ----------
 
 function svg(tag, attrs = {}) {
@@ -290,7 +305,7 @@ viewer.addEventListener("mousedown", e => {
   if (!el) return;
   e.preventDefault();
   const p = pages[+el.dataset.n];
-  loadText(p);
+  loadText(p); loadInk(p);
   const mode = e.shiftKey ? "highlight" : pending ? "box" : "underline";
   drag = { p, mode, start: pagePoint(p, e), end: null, moved: false, target: e.target, preview: svg("g") };
   p.overlay.append(drag.preview);
@@ -310,7 +325,7 @@ addEventListener("mousemove", e => {
       : svg("rect", { ...rectAttrs(r), fill: "#2a6fdb", "fill-opacity": 0.2 })));
 });
 
-addEventListener("mouseup", e => {
+addEventListener("mouseup", async e => {
   if (!drag) return;
   const d = drag; drag = null;
   if (!d.moved) {
@@ -319,6 +334,7 @@ addEventListener("mouseup", e => {
     if (refId) followRef(data.references.find(r => r.id === refId));
     return;
   }
+  if (d.mode !== "box") await Promise.all([loadText(d.p), loadInk(d.p)]).catch(() => {});
   const sel = dragResult(d);
   if (!sel || !sel.rects.length) { d.preview.remove(); return; }
   if (d.mode === "highlight") {
@@ -375,7 +391,7 @@ function dragResult(d) {
   const rect = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)].map(v => Math.round(v * 10) / 10);
   if (d.mode === "box") return { rects: [rect], text: "" };
   const sel = d.p.textData?.select(a, b);
-  if (sel?.rects.length) return sel;
+  if (sel?.rects.length) return d.p.inkData ? { ...sel, rects: d.p.inkData.snap(sel.rects, sel.from, sel.to) } : sel;
   return rect[3] - rect[1] > 2 ? { rects: [rect], text: "" } : null;
 }
 
