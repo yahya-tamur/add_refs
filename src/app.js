@@ -1,4 +1,4 @@
-/* global pdfjsLib, katex, PDFLib, PageText, store, download */
+/* global pdfjsLib, katex, PDFLib, PageText, store, chooseSaveTarget */
 // Annotation model (kept in IndexedDB per PDF, and embedded in exported PDFs). Coordinates are page points at
 // scale 1 with the origin at the top left.
 //   definitions: { id, term, color, text, highlight: [{ page, rects }], box: { page, rect } }
@@ -536,6 +536,8 @@ const isRefs = r => Array.isArray(r?.definitions) && Array.isArray(r?.references
 
 async function exportPdf() {
   if (!pdf) return;
+  const target = await chooseSaveTarget(docName + " (refs).pdf", "application/pdf", ".pdf");
+  if (!target) return;
   setStatus("Exporting…");
   const { PDFDocument, PDFName, PDFNull, PDFBool, rgb, BlendMode } = PDFLib;
   const MARK = PDFName.of("AddRefs");
@@ -582,8 +584,8 @@ async function exportPdf() {
   await doc.attach(new TextEncoder().encode(JSON.stringify(data)), ATTACHMENT, {
     mimeType: "application/json", description: "Add Refs annotations (open this PDF in Add Refs to edit them)",
   });
-  download(docName + " (refs).pdf", await doc.save(), "application/pdf");
-  setStatus(`Downloaded ${docName} (refs).pdf`);
+  try { await target.write(await doc.save()); setStatus(target.done); }
+  catch (e) { setStatus("Export failed: " + e.message); }
 }
 
 function rawContents(doc, page) {

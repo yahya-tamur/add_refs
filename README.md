@@ -37,7 +37,8 @@ nearest *preceding* definition of its term; the same term always keeps the same 
 
 - Annotations autosave in this browser (IndexedDB), keyed by the PDF's fingerprint, so renaming the
   file doesn't lose them. Clearing site data does.
-- **Export PDF** (Ctrl+S / Ctrl+E) downloads `paper (refs).pdf`: highlights, boxes and underlines
+- **Export PDF** (Ctrl+S / Ctrl+E) asks where to save `paper (refs).pdf` (Chrome/Edge; Firefox and
+  Safari put it in the downloads folder unless set to ask): highlights, boxes and underlines
   painted into the pages, real link annotations, and the annotation data as an attached
   `add-refs.json`. It reads in any PDF viewer, and opening it here again strips the painted marks and
   links and continues editing. Unlinked references are kept in the data but not drawn.

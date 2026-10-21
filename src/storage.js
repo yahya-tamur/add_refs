@@ -1,7 +1,7 @@
 // Browser-side persistence: a small IndexedDB key-value store (annotations per PDF, last opened PDF)
-// and file downloads.
+// and saving files.
 
-/* exported store, download */
+/* exported store, chooseSaveTarget */
 const store = (() => {
   let db = null;
   const open = () => db ||= new Promise((resolve, reject) => {
@@ -28,4 +28,24 @@ function download(name, bytes, type) {
   const url = URL.createObjectURL(new Blob([bytes], { type }));
   Object.assign(document.createElement("a"), { href: url, download: name }).click();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+// Asks where to save before the caller builds the file: the save dialog only opens while the click
+// that started the export still counts as a user action. Browsers without the dialog (Firefox,
+// Safari) download instead, which asks for a location only if the browser is set to.
+// Returns null if the user cancels.
+async function chooseSaveTarget(name, type, ext) {
+  const fallback = { name, write: bytes => download(name, bytes, type), done: `Downloaded ${name} to your downloads folder` };
+  if (!window.showSaveFilePicker) return fallback;
+  let handle;
+  try {
+    handle = await showSaveFilePicker({ suggestedName: name, id: "export", types: [{ description: ext.slice(1).toUpperCase(), accept: { [type]: [ext] } }] });
+  } catch (e) {
+    return e.name === "AbortError" ? null : fallback;
+  }
+  return {
+    name: handle.name,
+    write: async bytes => { const w = await handle.createWritable(); await w.write(bytes); await w.close(); },
+    done: `Saved ${handle.name}`,
+  };
 }
