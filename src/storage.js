@@ -33,14 +33,19 @@ function download(name, bytes, type) {
 // Asks where to save before the caller builds the file: the save dialog only opens while the click
 // that started the export still counts as a user action. Browsers without the dialog (Firefox,
 // Safari) download instead, which asks for a location only if the browser is set to.
-// Some embedded browsers show the dialog but refuse to write the chosen file, so the file is opened
-// for writing right away and a refusal falls back to a download. Returns null if the user cancels.
+// Some embedded browsers show the dialog but refuse to write the chosen file (and ask where to save
+// downloads instead), so the file is opened for writing right away; a refusal falls back to a
+// download and is remembered, so later exports skip the useless dialog. The Claude desktop app's
+// browser pane is known to refuse. Returns null if the user cancels.
+const PICKER_REFUSED = "add-refs:picker-refused";
+const pickerRefused = () => {
+  if (/\bClaude\//.test(navigator.userAgent)) return true;
+  try { return localStorage.getItem(PICKER_REFUSED) === "1"; } catch { return false; }
+};
+
 async function chooseSaveTarget(name, type, ext) {
-  const fallback = note => ({
-    name, write: bytes => download(name, bytes, type), abort() {},
-    done: `Downloaded ${name} to your downloads folder${note ? ` (${note})` : ""}`,
-  });
-  if (!window.showSaveFilePicker) return fallback();
+  const fallback = () => ({ name, write: bytes => download(name, bytes, type), abort() {}, done: `Downloaded ${name}` });
+  if (!window.showSaveFilePicker || pickerRefused()) return fallback();
   let handle, writable;
   try {
     handle = await showSaveFilePicker({ suggestedName: name, id: "export", types: [{ description: ext.slice(1).toUpperCase(), accept: { [type]: [ext] } }] });
@@ -51,7 +56,8 @@ async function chooseSaveTarget(name, type, ext) {
     writable = await handle.createWritable();
   } catch (e) {
     console.warn("Cannot write the chosen file:", e);
-    return fallback("this browser can't write to the chosen location");
+    try { localStorage.setItem(PICKER_REFUSED, "1"); } catch { /* not remembered */ }
+    return fallback();
   }
   return {
     name: handle.name,
