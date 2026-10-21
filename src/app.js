@@ -539,6 +539,14 @@ async function exportPdf() {
   const target = await chooseSaveTarget(docName + " (refs).pdf", "application/pdf", ".pdf");
   if (!target) return;
   setStatus("Exporting…");
+  let bytes;
+  try { bytes = await exportBytes(); }
+  catch (e) { target.abort(); setStatus("Export failed: " + e.message); return; }
+  try { await target.write(bytes); setStatus(target.done); }
+  catch (e) { target.abort(); setStatus("Export failed: " + e.message); }
+}
+
+async function exportBytes() {
   const { PDFDocument, PDFName, PDFNull, PDFBool, rgb, BlendMode } = PDFLib;
   const MARK = PDFName.of("AddRefs");
   const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
@@ -584,8 +592,7 @@ async function exportPdf() {
   await doc.attach(new TextEncoder().encode(JSON.stringify(data)), ATTACHMENT, {
     mimeType: "application/json", description: "Add Refs annotations (open this PDF in Add Refs to edit them)",
   });
-  try { await target.write(await doc.save()); setStatus(target.done); }
-  catch (e) { setStatus("Export failed: " + e.message); }
+  return doc.save();
 }
 
 function rawContents(doc, page) {

@@ -33,19 +33,30 @@ function download(name, bytes, type) {
 // Asks where to save before the caller builds the file: the save dialog only opens while the click
 // that started the export still counts as a user action. Browsers without the dialog (Firefox,
 // Safari) download instead, which asks for a location only if the browser is set to.
-// Returns null if the user cancels.
+// Some embedded browsers show the dialog but refuse to write the chosen file, so the file is opened
+// for writing right away and a refusal falls back to a download. Returns null if the user cancels.
 async function chooseSaveTarget(name, type, ext) {
-  const fallback = { name, write: bytes => download(name, bytes, type), done: `Downloaded ${name} to your downloads folder` };
-  if (!window.showSaveFilePicker) return fallback;
-  let handle;
+  const fallback = note => ({
+    name, write: bytes => download(name, bytes, type), abort() {},
+    done: `Downloaded ${name} to your downloads folder${note ? ` (${note})` : ""}`,
+  });
+  if (!window.showSaveFilePicker) return fallback();
+  let handle, writable;
   try {
     handle = await showSaveFilePicker({ suggestedName: name, id: "export", types: [{ description: ext.slice(1).toUpperCase(), accept: { [type]: [ext] } }] });
   } catch (e) {
-    return e.name === "AbortError" ? null : fallback;
+    return e.name === "AbortError" ? null : fallback();
+  }
+  try {
+    writable = await handle.createWritable();
+  } catch (e) {
+    console.warn("Cannot write the chosen file:", e);
+    return fallback("this browser can't write to the chosen location");
   }
   return {
     name: handle.name,
-    write: async bytes => { const w = await handle.createWritable(); await w.write(bytes); await w.close(); },
+    write: async bytes => { await writable.write(bytes); await writable.close(); },
+    abort: () => writable.abort().catch(() => {}),
     done: `Saved ${handle.name}`,
   };
 }
