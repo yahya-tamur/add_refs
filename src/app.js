@@ -1,4 +1,6 @@
-/* global pdfjsLib, katex, PDFLib, PageText, PageInk, Symbols, Ocr, store, chooseSaveTarget */
+/* global pdfjsLib, katex, PDFLib, PageText, PageInk, Symbols, Ocr, store, chooseSaveTarget,
+   PALETTE, isLatex, norm, isEnglishPhrase, posOf, before, resolveIn, pickColorIn, clashesIn, clipRects, symbolQuery, termHas,
+   underlineY, buildExport, embeddedRefs, stripExport */
 // Annotation model (kept in IndexedDB per PDF, and embedded in exported PDFs). Coordinates are page points at
 // scale 1 with the origin at the top left.
 //   definitions: { id, term, color, text, highlight: [{ page, rects }], box: { page, rect } }
@@ -6,7 +8,6 @@
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
 const SVGNS = "http://www.w3.org/2000/svg";
-const PALETTE = ["#f2b705", "#2a9df4", "#3cb371", "#e8559a", "#ff8c1a", "#8e5cd9", "#17b8b0", "#d64545", "#7a9a01", "#a0522d"];
 const UNRESOLVED = "#8a8a8a";
 
 const $ = id => document.getElementById(id);
@@ -24,23 +25,6 @@ function emptyData() { return { version: 1, definitions: [], references: [] }; }
 
 // ---------- terms ----------
 
-const isLatex = t => /[\\^_{}$]/.test(t);
-// English phrases match case-insensitively and ignore plurals; symbols and LaTeX match exactly
-// (T is not t, \Sigma is not \sigma), ignoring spacing, braces around a single script, and how a
-// star or prime is written.
-function norm(t) {
-  const s = t.normalize("NFKC").replace(/\$/g, "").trim();
-  if (/^[A-Za-z][A-Za-z' -]{2,}$/.test(s)) {
-    return s.toLowerCase().replace(/\s+/g, " ").replace(/(ss|x|ch|sh)es$/, "$1").replace(/ies$/, "y").replace(/([^s])s$/, "$1");
-  }
-  return s.replace(/\s+/g, (m, at) => /\\[A-Za-z]+$/.test(s.slice(0, at)) && /^[A-Za-z]/.test(s.slice(at + m.length)) ? " " : "")
-    .replace(/\\ast(?![A-Za-z])/g, "*").replace(/\\prime(?![A-Za-z])/g, "'")
-    .replace(/([_^])\{(\\[A-Za-z]+|[^{}\\\s])\}/g, "$1$2")
-    .replace(/\^(\*|'+)/g, "$1");  // A^* is A*, f^' is f'
-}
-// Words only, at least one of three letters or more ("A b" is two symbols, not a phrase).
-const isEnglishPhrase = t => t.length <= 80 && /^[A-Za-z][A-Za-z'’ -]*[A-Za-z]$/.test(t) && /[A-Za-z]{3}/.test(t);
-
 function renderTerm(el, term) {
   el.textContent = "";
   const math = (tex, display) => { const s = document.createElement("span"); katex.render(tex, s, { throwOnError: false, displayMode: display }); return s; };
@@ -49,27 +33,9 @@ function renderTerm(el, term) {
   else el.textContent = term;
 }
 
-const posOf = d => [d.box.page, d.box.rect[1]];
-const before = ([p1, y1], [p2, y2]) => p1 < p2 || p1 === p2 && y1 <= y2;
-
-// The definition a reference links to: same term, nearest preceding (else the first one after).
-function resolve(ref) {
-  const key = norm(ref.term);
-  const cands = data.definitions.filter(d => norm(d.term) === key).sort((a, b) => before(posOf(a), posOf(b)) ? -1 : 1);
-  if (!cands.length) return null;
-  const at = [ref.page, ref.rects[0]?.[1] ?? 0];
-  return cands.filter(d => before(posOf(d), at)).at(-1) || cands[0];
-}
-
-// A colour for a definition: the least used one (unused if possible), never that of another
-// definition of the same term, so repeated definitions of a word stay apart.
-function pickColor(term = null, except = null) {
-  const others = data.definitions.filter(d => d !== except);
-  const taken = new Set(term ? others.filter(d => norm(d.term) === norm(term)).map(d => d.color) : []);
-  const uses = c => others.filter(d => d.color === c).length;
-  return PALETTE.filter(c => !taken.has(c)).sort((a, b) => uses(a) - uses(b))[0] || PALETTE[others.length % PALETTE.length];
-}
-const clashes = (color, term, except = null) => data.definitions.some(d => d !== except && d.color === color && norm(d.term) === norm(term));
+const resolve = ref => resolveIn(data.definitions, ref);
+const pickColor = (term = null, except = null) => pickColorIn(data.definitions, term, except);
+const clashes = (color, term, except = null) => clashesIn(data.definitions, color, term, except);
 
 // ---------- persistence ----------
 
@@ -248,7 +214,6 @@ function svg(tag, attrs = {}) {
   return el;
 }
 const rectAttrs = ([x0, y0, x1, y1]) => ({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 });
-const underlineY = r => r[3] - (r[3] - r[1]) * 0.06;
 
 function drawAll() {
   for (const p of pages.slice(1)) { p.overlay.replaceChildren(); p.hits.replaceChildren(); }
@@ -437,16 +402,6 @@ addEventListener("mouseup", async e => {
   }
 });
 
-// Highlights never stack: a new one replaces the parts of older ones it covers. `clip` returns the
-// parts of `rects` outside `cutters` (on the same line).
-function clipRects(rects, cutters) {
-  const minus = (r, t) => {
-    const sameLine = Math.min(r[3], t[3]) - Math.max(r[1], t[1]) > 0.5 * Math.min(r[3] - r[1], t[3] - t[1]);
-    if (!sameLine || t[2] <= r[0] || t[0] >= r[2]) return [r];
-    return [...t[0] > r[0] ? [[r[0], r[1], t[0], r[3]]] : [], ...t[2] < r[2] ? [[t[2], r[1], r[2], r[3]]] : []];
-  };
-  return cutters.reduce((out, t) => out.flatMap(r => minus(r, t)), rects).filter(r => r[2] - r[0] > 1.5);
-}
 const pendingRects = page => pending?.parts.filter(p => p.page === page).flatMap(p => p.rects) || [];
 
 // Text selection for highlight/underline drags (falls back to the dragged rectangle where the
@@ -655,11 +610,6 @@ function refMenu(e, r) {
 }
 
 // ---------- export ----------
-// Exported PDFs get the marks painted into the page content, real link annotations, and the
-// annotation data as an attached file. Everything added carries /AddRefs so a later open can remove it.
-
-const ATTACHMENT = "add-refs.json";
-const isRefs = r => Array.isArray(r?.definitions) && Array.isArray(r?.references);
 
 async function exportPdf() {
   if (!pdf) return;
@@ -676,164 +626,11 @@ async function exportPdf() {
       if (left) setStatus(`Exporting… waiting for text recognition (${left} pages)`);
     })));
     setStatus("Exporting…");
-    bytes = await exportBytes();
+    bytes = await buildExport({ bytes: pdfBytes, data, docId, pages, resolve });
   }
   catch (e) { target.abort(); setStatus("Export failed: " + e.message); return; }
   try { await target.write(bytes); setStatus(target.done); }
   catch (e) { target.abort(); setStatus("Export failed: " + e.message); }
-}
-
-async function exportBytes() {
-  const { PDFDocument, PDFName, PDFNull, PDFBool, rgb, BlendMode } = PDFLib;
-  const MARK = PDFName.of("AddRefs");
-  const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-  const docPages = doc.getPages();
-  // Read before any drawing: pdf-lib's first draw on a page also wraps its content in q/Q streams.
-  const before = docPages.map(page => new Set(rawContents(doc, page).map(String)));
-  const toPdf = (n, [x0, y0, x1, y1]) => {
-    const [a, b] = pages[n].vp1.convertToPdfPoint(x0, y0), [c, d] = pages[n].vp1.convertToPdfPoint(x1, y1);
-    return [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
-  };
-  const color = hex => rgb(...[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255));
-  for (const d of data.definitions) {
-    for (const part of d.highlight) {
-      for (const r of part.rects) {
-        const [x0, y0, x1, y1] = toPdf(part.page, r);
-        docPages[part.page - 1].drawRectangle({ x: x0, y: y0, width: x1 - x0, height: y1 - y0, color: color(d.color), opacity: 0.32, blendMode: BlendMode.Multiply });
-      }
-    }
-    const [x0, y0, x1, y1] = toPdf(d.box.page, d.box.rect);
-    docPages[d.box.page - 1].drawRectangle({ x: x0, y: y0, width: x1 - x0, height: y1 - y0, borderColor: color(d.color), borderWidth: 0.6 });
-  }
-  for (const ref of data.references) {
-    const d = resolve(ref);
-    if (!d) continue;
-    const page = docPages[ref.page - 1];
-    for (const r of ref.rects) {
-      const [x0, , x1] = toPdf(ref.page, r), [, uy] = pages[ref.page].vp1.convertToPdfPoint(0, underlineY(r));
-      page.drawLine({ start: { x: x0, y: uy }, end: { x: x1, y: uy }, thickness: 1.2, color: color(d.color) });
-      const [, top] = pages[d.box.page].vp1.convertToPdfPoint(0, Math.max(d.box.rect[1] - 40, 0));
-      const annot = doc.context.obj({
-        Type: "Annot", Subtype: "Link", Rect: toPdf(ref.page, r), Border: [0, 0, 0],
-        Dest: [docPages[d.box.page - 1].ref, PDFName.of("XYZ"), PDFNull, top, PDFNull], AddRefs: true,
-      });
-      page.node.addAnnot(doc.context.register(annot));
-    }
-  }
-  await addOcrText(doc, docPages, MARK);
-  // Tag the content streams drawing added (the marks, OCR text and pdf-lib's q/Q wrappers).
-  docPages.forEach((page, i) => {
-    for (const ref of rawContents(doc, page)) {
-      if (!before[i].has(String(ref))) doc.context.lookup(ref).dict.set(MARK, PDFBool.True);
-    }
-  });
-  await doc.attach(new TextEncoder().encode(JSON.stringify({ ...data, source: docId })), ATTACHMENT, {
-    mimeType: "application/json", description: "Add Refs annotations (open this PDF in Add Refs to edit them)",
-  });
-  return doc.save();
-}
-
-function rawContents(doc, page) {
-  const ref = page.node.get(PDFLib.PDFName.of("Contents"));
-  const obj = doc.context.lookup(ref);
-  return obj instanceof PDFLib.PDFArray ? obj.asArray() : ref ? [ref] : [];
-}
-
-// Invisible text over OCR'd pages (render mode 3, each word stretched over its printed image), so
-// other viewers can search and copy the scanned text. Helvetica's encoding covers Latin text; other
-// characters (OCR's guesses at symbols, mostly) are left out.
-async function addOcrText(doc, docPages, MARK) {
-  const ocrPages = pages.slice(1).filter(p => p.textData?.ocr && p.textData.chars.length);
-  if (!ocrPages.length) return;
-  const { StandardFonts, PDFBool, PDFDict, TextRenderingMode, beginText, endText, setFontAndSize, setTextRenderingMode,
-    setCharacterSqueeze, setTextMatrix, showText } = PDFLib;
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const encodable = new Map();
-  const ok = ch => {
-    if (!encodable.has(ch)) { try { font.encodeText(ch); encodable.set(ch, true); } catch { encodable.set(ch, false); } }
-    return encodable.get(ch);
-  };
-  for (const p of ocrPages) {
-    const page = docPages[p.n - 1], words = [];
-    for (const ch of p.textData.chars) {
-      const w = words.at(-1);
-      if (w && w.item === ch.item) { w.text += ch.c; w.x1 = Math.max(w.x1, ch.x1); }
-      else words.push({ item: ch.item, text: ch.c, x0: ch.x0, x1: ch.x1, base: ch.base, size: ch.size });
-    }
-    page.setFont(font);
-    const ops = [beginText(), setFontAndSize(page.fontKey, 10), setTextRenderingMode(TextRenderingMode.Invisible)];
-    for (const w of words) {
-      const text = [...w.text].filter(ok).join("");
-      if (!text.trim()) continue;
-      const [x, y] = p.vp1.convertToPdfPoint(w.x0, w.base), [x2] = p.vp1.convertToPdfPoint(w.x1, w.base);
-      const natural = font.widthOfTextAtSize(text, w.size);
-      if (natural <= 0 || x2 <= x) continue;
-      ops.push(setFontAndSize(page.fontKey, w.size), setCharacterSqueeze(100 * (x2 - x) / natural), setTextMatrix(1, 0, 0, 1, x, y), showText(font.encodeText(text)));
-    }
-    ops.push(endText());
-    page.pushOperators(...ops);
-  }
-  // Embed the font now and tag it; encoding text marks it for re-embedding, so this comes last.
-  await font.embed();
-  doc.context.lookup(font.ref, PDFDict).set(MARK, PDFBool.True);
-}
-
-async function embeddedRefs(doc) {
-  const att = Object.values(await doc.getAttachments() || {}).find(a => a.filename === ATTACHMENT);
-  if (!att) return null;
-  try {
-    const refs = JSON.parse(new TextDecoder().decode(att.content));
-    return isRefs(refs) ? refs : null;
-  } catch { return null; }
-}
-
-// Undo an export: delete tagged content streams (marks, OCR text) and links, pdf-lib's opacity states,
-// the OCR text's font, and the attachment.
-// Pages are edited through their raw entries; pdf-lib's normalizing accessors would add new q/Q streams.
-async function stripExport(bytes) {
-  const { PDFDocument, PDFName, PDFArray, PDFDict, PDFRef } = PDFLib;
-  const MARK = PDFName.of("AddRefs");
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
-  // pdf-lib writes every object it holds, so unlinked objects are deleted at the end (the q/Q
-  // streams are shared between pages).
-  const dead = new Set();
-  const del = ref => { if (ref instanceof PDFRef) dead.add(ref); };
-  const tagged = ref => {
-    const obj = doc.context.lookup(ref);
-    return !!(obj?.dict ?? obj)?.get?.(MARK);
-  };
-  const prune = (arr, drop) => {
-    for (let i = arr.size() - 1; i >= 0; i--) if (drop(arr.get(i))) { del(arr.get(i)); arr.remove(i); }
-  };
-  for (const page of doc.getPages()) {
-    const contents = doc.context.lookup(page.node.get(PDFName.of("Contents")));
-    if (contents instanceof PDFArray) prune(contents, tagged);
-    const annots = page.node.Annots();
-    if (annots) prune(annots, tagged);
-    const gs = page.node.Resources()?.lookupMaybe(PDFName.of("ExtGState"), PDFDict);
-    for (const [key, val] of gs?.entries() || []) {
-      const d = doc.context.lookup(val);
-      if (/^GS-\d+$/.test(key.decodeText()) && d?.has?.(PDFName.of("BM"))) { del(val); gs.delete(key); }
-    }
-    const fonts = page.node.Resources()?.lookupMaybe(PDFName.of("Font"), PDFDict);  // the OCR text's font
-    for (const [key, val] of fonts?.entries() || []) if (tagged(val)) { del(val); fonts.delete(key); }
-  }
-  const names = doc.catalog.lookupMaybe(PDFName.of("Names"), PDFDict)
-    ?.lookupMaybe(PDFName.of("EmbeddedFiles"), PDFDict)?.lookupMaybe(PDFName.of("Names"), PDFArray);
-  if (names) {
-    for (let i = names.size() - 2; i >= 0; i -= 2) {
-      if (names.lookup(i).decodeText?.() !== ATTACHMENT) continue;
-      const spec = names.get(i + 1);
-      const af = doc.catalog.lookupMaybe(PDFName.of("AF"), PDFArray);
-      const at = af ? af.asArray().indexOf(spec) : -1;
-      if (at >= 0) af.remove(at);
-      del(doc.context.lookup(spec, PDFDict).lookup(PDFName.of("EF"), PDFDict).get(PDFName.of("F")));
-      del(spec);
-      names.remove(i + 1); names.remove(i);
-    }
-  }
-  for (const ref of dead) doc.context.delete(ref);
-  return doc.save();
 }
 
 // ---------- search ----------
@@ -844,32 +641,13 @@ function firstVisiblePage() {
   return pages.slice(1).find(p => p.el.offsetTop + p.el.offsetHeight > viewer.scrollTop)?.n || 1;
 }
 
-// A query naming a symbol, as LaTeX ("\Lambda", "\Sigma_{\Lambda}") or a Unicode character ("Λ"):
-// { latex, char } with the forms to look for in annotation terms and in the text, or null.
-function symbolQuery(q) {
-  q = q.trim();
-  const toChar = Object.fromEntries(Object.entries(Symbols.unicode).map(([k, ch]) => [ch, k]));
-  if (/[\\_^]/.test(q)) return { latex: q, char: Symbols.unicode[q] || null };
-  if ([...q].some(ch => toChar[ch])) return { latex: [...q].map(ch => toChar[ch] ? toChar[ch] + " " : ch).join("").trim(), char: q };
-  return null;
-}
-
-// Whether an annotation term contains the symbol (\Lambda is in \Sigma_{\Lambda}, not in \Lambdax).
-function termHas(term, latex) {
-  const t = norm(term), q = norm(latex);
-  for (let i = t.indexOf(q); i >= 0; i = t.indexOf(q, i + 1)) {
-    if (!(/[A-Za-z]$/.test(q) && /^[A-Za-z]/.test(t.slice(i + q.length)))) return true;
-  }
-  return false;
-}
-
 // Matches in the text layer, plus, for symbols (which scanned text layers rarely contain), the boxes
 // of definitions and the underlines of references whose term contains the symbol.
 async function runSearch(query) {
   search = { query, hits: [], index: -1 };
   if (query.trim()) {
     $("search-count").textContent = "…";
-    const sym = symbolQuery(query);
+    const sym = symbolQuery(query, Symbols.unicode);
     for (const p of pages.slice(1)) {
       const t = await loadText(p);
       if (search.query !== query) return;  // a newer search started

@@ -11,6 +11,14 @@ Push to GitHub, then under **Settings → Pages** set **Source** to **GitHub Act
 To build locally: `npm install && npm run build` writes the site to `dist/`;
 `npm run serve` builds and serves it at http://127.0.0.1:8612.
 
+## Tests
+
+`npm test` runs the unit tests (Node's built-in test runner, no extra dependencies): term matching,
+colours and highlight clipping (`src/terms.js`), text selection, search and ink snapping
+(`src/text.js`), the LaTeX parser of the symbol recognizer, OCR caching, the save-location fallbacks,
+and export round trips with the real pdf-lib and pdf.js (`src/pdfexport.js`). The deploy workflow
+runs them before building.
+
 ## Opening papers
 
 - **Open…** (Ctrl+O) or drop a PDF on the window. Opening a PDF exported by Add Refs restores its
