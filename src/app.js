@@ -346,7 +346,7 @@ addEventListener("mouseup", async e => {
     if (refId) followRef(data.references.find(r => r.id === refId));
     return;
   }
-  if (d.mode !== "box") await Promise.all([loadText(d.p), loadInk(d.p)]).catch(() => {});
+  await Promise.all([loadText(d.p), loadInk(d.p)]).catch(() => {});  // text aligned to the print, for all modes
   const sel = dragResult(d);
   if (!sel || !sel.rects.length) { d.preview.remove(); return; }
   if (d.mode === "highlight") {

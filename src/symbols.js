@@ -273,6 +273,10 @@ const Symbols = (() => {
     return features({ m, w: cw, h: ch });
   }
 
+  // Letters are read one by one, so a word can come out as "grOup"; words keep only lowercase,
+  // Capitalized or ALL-CAPS forms, other mixes becoming lowercase.
+  const caseFold = latex => /^[A-Za-z]{2,}$/.test(latex) && !/^([a-z]+|[A-Z][a-z]+|[A-Z]+)$/.test(latex) ? latex.toLowerCase() : latex;
+
   function join(a, b) { return /\\[A-Za-z]+$/.test(a) && /^[A-Za-z]/.test(b) ? a + " " + b : a + b; }
 
   // `inner` is the region the user marked, in canvas pixels; the canvas may extend past it so glyphs
@@ -358,9 +362,9 @@ const Symbols = (() => {
       for (let k = 1; k < tokens[i].cands.length; k++) { const p = first.slice(); p[i] = k; picks.push(p); }
     }
     const seen = new Set();
-    const readings = picks.map(p => ({ latex: assemble(p), score: score(p) }))
-      .filter(c => !seen.has(c.latex) && seen.add(c.latex))
-      .sort((a, b) => b.score - a.score);
+    const readings = picks.map(p => ({ latex: caseFold(assemble(p)), score: score(p) }))
+      .sort((a, b) => b.score - a.score)
+      .filter(c => !seen.has(c.latex) && seen.add(c.latex));
     return { readings, glyphs: tokens.map(t => ({ f: t.f, top: t.cands[0].latex, t: t.cands[0].t })) };
   }
 

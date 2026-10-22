@@ -205,6 +205,16 @@ test("alternative readings swap in runner-ups, best first, without duplicates", 
   assert.ok(readings.slice(1).every(r => r.latex.startsWith("L") !== r.latex.endsWith("O")), readings.map(r => r.latex).join(" "));
 });
 
+test("words read letter by letter keep only lowercase, Capitalized or ALL-CAPS forms", async () => {
+  // "O" exists only as a capital, so the middle letter of a lowercase word reads as one
+  const S = recognizer(T => [T.template("l", glyph("L")), T.template("t", glyph("T")), T.template("O", glyph("O")), T.template("L", glyph("L"), { prior: 0.01 })]);
+  const { readings } = await read(S, bitmap(220, 120).draw("L", 20, 20, 40, 60, 6).draw("O", 80, 20, 40, 60, 6).draw("T", 140, 20, 40, 60, 6));
+  const words = readings.map(r => r.latex);
+  assert.equal(words[0], "lot");
+  assert.ok(words.every(w => /^([a-z]+|[A-Z][a-z]+|[A-Z]+)$/.test(w)), words.join(" "));
+  assert.equal(new Set(words).size, words.length);
+});
+
 // ---- learning from corrections ----
 
 test("a correction teaches the misread glyph, which is then preferred", async () => {

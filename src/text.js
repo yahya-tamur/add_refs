@@ -67,30 +67,48 @@ class PageText {
     return { rects: lineRects(run), text: runText(run), from: forward ? a : b, to: forward ? b : a };
   }
 
-  // Stretches each text line's characters linearly onto the ink of that printed line, correcting text
-  // layers that drift from the page image. Lines whose ink doesn't plausibly match are left alone.
+  // Moves each text line's characters onto the ink of that printed line, correcting text layers that
+  // drift from the page image. Word by word where the line's ink splits into as many words as the
+  // text (its widest gaps taken as the spaces), else the whole line stretched linearly; lines whose
+  // ink doesn't plausibly match are left alone.
   align(ink) {
     if (this.aligned) return;
     this.aligned = true;
     const lines = [];
-    let cur = null;
+    let cur = null, space = false;
     for (const ch of this.chars) {
-      if (!ch.c.trim()) continue;
-      if (!cur || Math.abs(ch.base - cur.base) > ch.size * 0.6 || ch.x0 < cur.x1 - ch.size) lines.push(cur = { base: ch.base, chars: [], x0: ch.x0, x1: ch.x1, top: ch.top, bottom: ch.bottom });
+      if (!ch.c.trim()) { space = true; continue; }
+      if (!cur || Math.abs(ch.base - cur.base) > ch.size * 0.6 || ch.x0 < cur.x1 - ch.size) {
+        lines.push(cur = { base: ch.base, chars: [], words: [], x0: ch.x0, x1: ch.x1, top: ch.top, bottom: ch.bottom });
+        space = true;
+      }
+      const prev = cur.chars.at(-1);
+      if (space || ch.x0 - prev.x1 > ch.size * 0.15) cur.words.push([]);  // OCR text has gaps, not spaces
+      cur.words.at(-1).push(ch);
       cur.chars.push(ch);
+      space = false;
       cur.x1 = Math.max(cur.x1, ch.x1); cur.x0 = Math.min(cur.x0, ch.x0);
       cur.top = Math.min(cur.top, ch.top); cur.bottom = Math.max(cur.bottom, ch.bottom);
     }
     const S = ink.scale, X = v => Math.max(0, Math.min(ink.w - 1, Math.round(v * S)));
+    const stretch = (chars, t0, t1, i0, i1) => {
+      const k = (i1 - i0) / (t1 - t0 || 1);
+      for (const ch of chars) { ch.x0 = i0 + (ch.x0 - t0) * k; ch.x1 = i0 + (ch.x1 - t0) * k; }
+    };
     for (const ln of lines) {
       const { col, lineGap } = ink.profile([ln.x0, ln.top, ln.x1, ln.bottom]);
       const a = PageInk.seek(col, X(ln.x0), 1, lineGap * 2), b = PageInk.seek(col, X(ln.x1), -1, lineGap * 2);
       if (a < 0 || b < 0 || b <= a) continue;
-      const x0 = PageInk.extent(col, a, -1, lineGap) / S, x1 = (PageInk.extent(col, b, 1, lineGap) + 1) / S;
-      const k = (x1 - x0) / (ln.x1 - ln.x0);
+      const ia = PageInk.extent(col, a, -1, lineGap), ib = PageInk.extent(col, b, 1, lineGap);
+      const x0 = ia / S, x1 = (ib + 1) / S, k = (x1 - x0) / (ln.x1 - ln.x0);
       if (k < 0.8 || k > 1.25 || Math.abs(x0 - ln.x0) > 30) continue;
-      const map = v => x0 + (v - ln.x0) * k;
-      for (const ch of ln.chars) { ch.x0 = map(ch.x0); ch.x1 = map(ch.x1); }
+      const inkWords = PageInk.words(col, ia, ib, ln.words.length);
+      const plausible = inkWords && ln.words.every((w, i) => {
+        const tw = w.at(-1).x1 - w[0].x0, iw = (inkWords[i][1] + 1 - inkWords[i][0]) / S;
+        return iw > tw * 0.5 && iw < tw * 2 + 2;
+      });
+      if (plausible) ln.words.forEach((w, i) => stretch(w, w[0].x0, w.at(-1).x1, inkWords[i][0] / S, (inkWords[i][1] + 1) / S));
+      else stretch(ln.chars, ln.x0, ln.x1, x0, x1);
     }
     // spaces sit between the characters around them
     this.chars.forEach((ch, i) => {
@@ -205,6 +223,25 @@ class PageInk {
       if (col[i]) { last = i; run = 0; } else if (++run > gap) break;
     }
     return last;
+  }
+
+  // The ink between pixel columns a and b split into n words at its n - 1 widest gaps, as
+  // [[first, last], ...] columns, or null if it has fewer gaps than that.
+  static words(col, a, b, n) {
+    const gaps = [];
+    for (let x = a; x <= b;) {
+      if (col[x]) { x++; continue; }
+      const start = x;
+      while (x <= b && !col[x]) x++;
+      gaps.push([start, x - 1]);
+    }
+    if (gaps.length < n - 1) return null;
+    const cuts = gaps.sort((p, q) => (q[1] - q[0]) - (p[1] - p[0])).slice(0, n - 1).sort((p, q) => p[0] - q[0]);
+    const words = [];
+    let from = a;
+    for (const [g0, g1] of cuts) { words.push([from, g0 - 1]); from = g1 + 1; }
+    words.push([from, b]);
+    return words;
   }
 
   // Snaps selection line rects to the ink: the first line starts at the word under `from`, the last

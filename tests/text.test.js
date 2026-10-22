@@ -134,3 +134,31 @@ test("align leaves lines whose ink doesn't plausibly match", () => {
   page.align(ink([{ top: 93, bottom: 101, words: [[50, 200]] }]));  // three times as wide
   assert.equal(page.chars[0].x0, 50);
 });
+
+test("align moves each word onto its own printed word when the drift is uneven", () => {
+  // text layer: three words evenly spaced; print: the middle word sits 12pt further right
+  const l = textLine("abcde fghij klmno", 100, 0, 50);  // words at 50-75, 80-105, 110-135
+  const page = new PageText(l);
+  page.align(ink([{ top: 93, bottom: 101, words: [[50, 75], [92, 117], [122, 147]] }]));
+  const word = i => { const w = page.chars.filter(c => c.c.trim()).slice(i * 5, i * 5 + 5); return [w[0].x0, w.at(-1).x1]; };
+  for (const [i, [a, b]] of [[50, 75], [92, 117], [122, 147]].entries()) {
+    const [x0, x1] = word(i);
+    assert.ok(Math.abs(x0 - a) < 0.6 && Math.abs(x1 - b) < 0.6, `word ${i}: ${x0}-${x1}, printed ${a}-${b}`);
+  }
+});
+
+test("align falls back to stretching the whole line when the ink's words don't match the text's", () => {
+  const l = textLine("abcde fghij klmno", 100, 0, 50);  // text 50..135
+  const page = new PageText(l);
+  page.align(ink([{ top: 93, bottom: 101, words: [[60, 150]] }]));  // one unbroken run of ink: 60..150
+  assert.ok(Math.abs(page.chars[0].x0 - 60) < 0.6 && Math.abs(page.chars.at(-1).x1 - 150) < 0.6);
+});
+
+test("PageInk.words splits a line's ink at its widest gaps", () => {
+  const col = new Uint8Array(40);
+  for (const [a, b] of [[0, 4], [6, 9], [14, 19], [21, 25]]) for (let x = a; x <= b; x++) col[x] = 1;  // gaps 1, 4, 1 wide
+  assert.deepEqual(plain(PageInk.words(col, 0, 25, 2)), [[0, 9], [14, 25]]);
+  assert.deepEqual(plain(PageInk.words(col, 0, 25, 4)), [[0, 4], [6, 9], [14, 19], [21, 25]]);
+  assert.equal(PageInk.words(col, 0, 25, 5), null);
+  assert.deepEqual(plain(PageInk.words(col, 0, 25, 1)), [[0, 25]]);
+});
