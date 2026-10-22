@@ -13,6 +13,12 @@
   <button id="open" title="Open a PDF (Ctrl+O). You can also drop one here.">Open…</button>
   <input id="picker" type="file" accept=".pdf,application/pdf" hidden>
   <button id="export" title="Save a copy of the PDF with highlights, links and the annotations inside it (Ctrl+S)" disabled>Export PDF</button>
+  <div id="pager" hidden>
+    <button id="page-prev" title="Previous page">‹</button>
+    <input id="page-input" inputmode="numeric" autocomplete="off" title="Page number (Enter to go)">
+    <span id="page-count"></span>
+    <button id="page-next" title="Next page">›</button>
+  </div>
   <button id="back" title="Back to where you followed the link (Alt+←)" hidden>← Back</button>
   <div id="search" hidden>
     <input id="search-input" placeholder="Find in PDF" spellcheck="false" autocomplete="off">

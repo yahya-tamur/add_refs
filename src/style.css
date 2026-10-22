@@ -14,6 +14,11 @@ button:disabled { opacity: .5; cursor: default; }
 
 header { display: flex; gap: 10px; align-items: center; padding: 6px 12px; background: var(--bar); border-bottom: 1px solid var(--line); }
 #file { font-weight: 600; flex: 0 1 auto; min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#pager { display: flex; gap: 4px; align-items: center; flex: none; }
+#pager[hidden] { display: none; }
+#pager button { padding: 3px 8px; }
+#page-input { font: inherit; width: 3.2em; text-align: center; padding: 3px 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--fg); }
+#page-count { color: var(--muted); white-space: nowrap; }
 #search { display: flex; gap: 4px; align-items: center; flex: none; }
 #search[hidden] { display: none; }
 #search input { font: inherit; width: 200px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--fg); }

@@ -89,6 +89,8 @@ async function openPdf(name, bytes, { preferStored = false, id = null } = {}) {
   $("file").textContent = name;
   document.title = name + " — Add Refs";
   $("export").disabled = false;
+  $("pager").hidden = false;
+  $("page-count").textContent = "/ " + pdf.numPages;
   pagesEl.innerHTML = ""; pages = [];
   observer.disconnect(); visible.clear();
   for (let n = 1; n <= pdf.numPages; n++) {
@@ -108,6 +110,7 @@ async function openPdf(name, bytes, { preferStored = false, id = null } = {}) {
     observer.observe(el);
   }
   viewer.scrollTop = 0;
+  updatePager(1);
   drawAll();
   setStatus(`${data.definitions.length} definitions, ${data.references.length} references`);
   ocrInBackground(pdf);
@@ -633,6 +636,38 @@ async function exportPdf() {
   catch (e) { target.abort(); setStatus("Export failed: " + e.message); }
 }
 
+// ---------- page number ----------
+
+// The page under the upper part of the view (where a page's top lands after a jump).
+function currentPage() {
+  const y = viewer.scrollTop + viewer.clientHeight * 0.3;
+  return pages.slice(1).find(p => p.el.offsetTop + p.el.offsetHeight > y)?.n || 1;
+}
+function goToPage(n) {
+  if (!pages.length) return;
+  n = Math.min(Math.max(Math.round(n) || 1, 1), pages.length - 1);
+  viewer.scrollTop = pages[n].el.offsetTop - 12;
+  updatePager(n);
+}
+function updatePager(n = currentPage()) {
+  if (document.activeElement !== $("page-input")) $("page-input").value = n;
+  $("page-prev").disabled = n <= 1;
+  $("page-next").disabled = n >= pages.length - 1;
+}
+let pagerFrame = 0;
+viewer.addEventListener("scroll", () => { cancelAnimationFrame(pagerFrame); pagerFrame = requestAnimationFrame(() => pages.length && updatePager()); });
+$("page-prev").onclick = () => goToPage(currentPage() - 1);
+$("page-next").onclick = () => goToPage(currentPage() + 1);
+$("page-input").addEventListener("keydown", e => {
+  if (e.key !== "Enter" && e.key !== "Escape") return;
+  e.preventDefault(); e.stopPropagation();
+  const n = parseInt($("page-input").value, 10);
+  $("page-input").blur();
+  if (e.key === "Enter" && !Number.isNaN(n)) goToPage(n); else updatePager();  // Esc or not a number: back to the current page
+});
+$("page-input").addEventListener("focus", () => $("page-input").select());
+$("page-input").addEventListener("blur", () => updatePager());
+
 // ---------- search ----------
 
 let search = { query: "", hits: [], index: -1 };  // hits: [{ page, rects }] in reading order
@@ -729,7 +764,7 @@ $("back").onclick = goBack;
 addEventListener("keydown", e => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === "f" && !e.target.closest?.("#prompt")) { e.preventDefault(); openSearch(); return; }
-  if (e.target.closest?.("#prompt, #search")) return;
+  if (e.target.closest?.("#prompt, #search, #pager")) return;
   if (e.key === "Escape") {
     hideMenu();
     if (drag) { drag.preview.remove(); drag = null; }
