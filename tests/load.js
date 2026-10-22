@@ -5,12 +5,13 @@ const vm = require("node:vm");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const source = f => fs.readFileSync(path.join(__dirname, "../src", f), "utf8");
+const file = f => path.join(__dirname, "../src", f);
+const source = f => fs.readFileSync(file(f), "utf8");
 
 function load(files, globals = {}) {
   const ctx = vm.createContext({ console, URL, Blob, TextEncoder, TextDecoder, setTimeout, clearTimeout, ...globals });
   ctx.window = ctx;
-  for (const f of files) vm.runInContext(source(f), ctx, { filename: f });
+  for (const f of files) vm.runInContext(source(f), ctx, { filename: file(f) });
   return new Proxy({}, { get: (_, name) => vm.runInContext(String(name), ctx) });
 }
 
@@ -18,7 +19,7 @@ function load(files, globals = {}) {
 // `instanceof` (pdf-lib). Each test file runs in its own process, so the globals stay contained.
 function loadHere(files, globals = {}) {
   Object.assign(globalThis, globals);
-  for (const f of files) vm.runInThisContext(source(f), { filename: f });
+  for (const f of files) vm.runInThisContext(source(f), { filename: file(f) });
   return new Proxy({}, { get: (_, name) => vm.runInThisContext(String(name)) });
 }
 

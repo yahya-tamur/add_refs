@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test": "node --test \"tests/*.test.js\"",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" \"tests/*.test.js\"",
     "build": "node build.mjs",
     "serve": "node build.mjs && python3 -m http.server 8612 --bind 127.0.0.1 --directory dist"
   },
