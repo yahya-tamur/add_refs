@@ -2,7 +2,7 @@
 // text for scanned pages, and the annotation data as an attached file. Everything added carries
 // /AddRefs so a later open can remove it (stripExport).
 
-/* global PDFLib, underlineY */
+/* global PDFLib, underlineY, mergeRects */
 /* exported ATTACHMENT, isRefs, buildExport, embeddedRefs, stripExport */
 
 const ATTACHMENT = "add-refs.json";
@@ -24,7 +24,7 @@ async function buildExport({ bytes, data, docId, pages, resolve }) {
   const color = hex => rgb(...[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255));
   for (const d of data.definitions) {
     for (const part of d.highlight) {
-      for (const r of part.rects) {
+      for (const r of mergeRects(part.rects)) {
         const [x0, y0, x1, y1] = toPdf(part.page, r);
         docPages[part.page - 1].drawRectangle({ x: x0, y: y0, width: x1 - x0, height: y1 - y0, color: color(d.color), opacity: 0.32, blendMode: BlendMode.Multiply });
       }

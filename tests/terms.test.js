@@ -85,6 +85,29 @@ test("clipRects removes covered parts on the same line only", () => {
     [[0, 100, 10, 110], [20, 100, 50, 110], [70, 100, 100, 110]]);
 });
 
+test("mergeRects joins a definition's pieces that touch or sit a word space apart on a line", () => {
+  // two drags over neighbouring words (a 3pt space between), one overlapping piece, and a wider gap
+  const merged = plain(t.mergeRects([[50, 100, 80, 110], [83, 100, 120, 110], [110, 100, 140, 110], [160, 100, 190, 110]]));
+  assert.deepEqual(merged, [[50, 100, 140, 110], [160, 100, 190, 110]]);
+  // pieces on different lines stay apart, in reading order, even if given out of order
+  assert.deepEqual(plain(t.mergeRects([[60, 120, 90, 130], [50, 100, 80, 110]])), [[50, 100, 80, 110], [60, 120, 90, 130]]);
+  // slightly different line heights on the same line still merge, taking the union
+  assert.deepEqual(plain(t.mergeRects([[50, 100, 80, 110], [82, 99, 100, 111]])), [[50, 99, 100, 111]]);
+  // the input is not modified
+  const input = [[50, 100, 80, 110], [82, 100, 100, 110]];
+  t.mergeRects(input);
+  assert.deepEqual(input, [[50, 100, 80, 110], [82, 100, 100, 110]]);
+});
+
+test("mergeRects takes the app's rule for which pieces are next to each other", () => {
+  // a wide justified space (12pt) joins when the rule says nothing lies between; a gap with text in it stays
+  const wide = [[50, 100, 80, 110], [92, 100, 120, 110]];
+  assert.equal(t.mergeRects(wide).length, 2);                       // too wide for the default rule
+  assert.equal(t.mergeRects(wide, () => true).length, 1);
+  assert.equal(t.mergeRects([[50, 100, 80, 110], [83, 100, 100, 110]], () => false).length, 2);
+  assert.equal(t.mergeRects([[50, 100, 80, 110], [70, 100, 100, 110]], () => false).length, 1);  // overlaps always join
+});
+
 test("symbolQuery recognizes LaTeX and Unicode symbols", () => {
   const unicode = { "\\Lambda": "Λ", "\\Sigma": "Σ" };
   assert.deepEqual(plain(t.symbolQuery("\\Lambda", unicode)), { latex: "\\Lambda", char: "Λ" });

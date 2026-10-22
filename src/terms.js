@@ -1,8 +1,8 @@
 // Terms and marks: how terms match, which definition a reference links to, definition colours,
 // highlight clipping and symbol search queries. Pure functions; the app passes in its definitions.
 
-/* exported PALETTE, isLatex, norm, isEnglishPhrase, posOf, before, resolveIn, pickColorIn, clashesIn, clipRects, symbolQuery,
-   termHas, underlineY */
+/* exported PALETTE, isLatex, norm, isEnglishPhrase, posOf, before, resolveIn, pickColorIn, clashesIn, clipRects, mergeRects,
+   symbolQuery, termHas, underlineY */
 
 const PALETTE = ["#f2b705", "#2a9df4", "#3cb371", "#e8559a", "#ff8c1a", "#8e5cd9", "#17b8b0", "#d64545", "#7a9a01", "#a0522d"];
 
@@ -50,6 +50,30 @@ const clashesIn = (definitions, color, term, except = null) =>
 
 // Where a reference's underline is drawn under a text line rect [x0, y0, x1, y1].
 const underlineY = r => r[3] - (r[3] - r[1]) * 0.06;
+
+// One definition's highlight pieces on a line that overlap or are next to each other become one rect,
+// so a highlight added next to another continues it. `nextTo(a, b)` says whether a and b (b to the
+// right) are next to each other; by default, at most about a word space apart. The app passes "no
+// text between them", which also keeps the gap left by a word taken out. Returned in reading order.
+const aboutASpace = (a, b) => b[0] - a[2] <= 0.6 * Math.max(a[3] - a[1], b[3] - b[1]);
+function mergeRects(rects, nextTo = aboutASpace) {
+  const lines = [];
+  for (const r of [...rects].sort((a, b) => (a[1] + a[3]) - (b[1] + b[3]))) {
+    const h = r[3] - r[1], line = lines.at(-1);
+    if (line && Math.min(line.y1, r[3]) - Math.max(line.y0, r[1]) > 0.5 * Math.min(line.y1 - line.y0, h)) {
+      line.rects.push(r); line.y0 = Math.min(line.y0, r[1]); line.y1 = Math.max(line.y1, r[3]);
+    } else lines.push({ y0: r[1], y1: r[3], rects: [r] });
+  }
+  const out = [];
+  for (const line of lines) {
+    let cur = null;
+    for (const r of line.rects.sort((a, b) => a[0] - b[0])) {
+      if (cur && (r[0] <= cur[2] || nextTo(cur, r))) { cur[2] = Math.max(cur[2], r[2]); cur[1] = Math.min(cur[1], r[1]); cur[3] = Math.max(cur[3], r[3]); }
+      else out.push(cur = [...r]);
+    }
+  }
+  return out;
+}
 
 // Highlights never stack: a new one replaces the parts of older ones it covers. Returns the parts of
 // `rects` outside `cutters` (on the same line).

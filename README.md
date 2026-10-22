@@ -37,7 +37,8 @@ runs them before building.
 
 | Action | Result |
 | --- | --- |
-| **Shift+drag** over text | Highlights the definition passage in the colour it will get (repeat to add lines, even on other pages). A new highlight replaces any older highlight it covers |
+| **Shift+drag** over text | Highlights the definition passage in the colour it will get (repeat to add lines, even on other pages). Pieces next to each other join into one highlight; a new highlight replaces any older highlight it covers |
+| **Ctrl+drag** (⌘ on a Mac) while defining | Takes the words dragged over out of the highlight |
 | then **drag a box** | Outlines the defined symbol/phrase and asks for its term: `simple equivalence`, `\Sigma_{ij}`, `the $T$ group` |
 | **Drag** over a later use | Underlines it and asks which term it refers to (an English phrase is pre-filled). A match becomes a link, underlined in the definition's colour; no match is kept as a grey dashed "unlinked" mark that links once the definition exists |
 | Click an underline | Jumps to the definition; **← Back** / Alt+← returns |

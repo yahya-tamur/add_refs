@@ -162,3 +162,23 @@ test("PageInk.words splits a line's ink at its widest gaps", () => {
   assert.equal(PageInk.words(col, 0, 25, 5), null);
   assert.deepEqual(plain(PageInk.words(col, 0, 25, 1)), [[0, 25]]);
 });
+
+test("textIn reads the highlighted text, joining separate stretches with a space", () => {
+  const l1 = textLine("the basic module is free", 100, 0), l2 = textLine("of finite rank", 114, 1);
+  const page = new PageText([...l1, ...l2]);
+  const span = (line, from, to) => [line[from].x0, line[from].top, line[to].x1, line[from].bottom];
+  assert.equal(page.textIn([span(l1, 4, 15)]), "basic module");
+  // "is" taken out of the middle leaves two stretches
+  assert.equal(page.textIn([span(l1, 4, 15), span(l1, 20, 23)]), "basic module free");
+  assert.equal(page.textIn([span(l1, 20, 23), span(l2, 0, 1)]), "free of");
+  assert.equal(page.textIn([]), "");
+});
+
+test("textIn counts a word when at least half its letters are inside", () => {
+  const l = textLine("the basic module is free", 100, 0);
+  const page = new PageText(l);
+  // from inside "basic" (3 of 5 letters) to inside "module" (3 of 6): both count
+  assert.equal(page.textIn([[l[6].x0, l[6].top, l[12].x1, l[6].bottom]]), "basic module");
+  // only 2 of 5 letters of "basic": it doesn't
+  assert.equal(page.textIn([[l[7].x0, l[7].top, l[15].x1, l[7].bottom]]), "module");
+});

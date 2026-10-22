@@ -1,6 +1,6 @@
 /* global pdfjsLib, katex, PDFLib, PageText, PageInk, Symbols, Ocr, store, chooseSaveTarget,
    PALETTE, isLatex, norm, isEnglishPhrase, posOf, before, resolveIn, pickColorIn, clashesIn, clipRects, symbolQuery, termHas,
-   underlineY, buildExport, embeddedRefs, stripExport */
+   mergeRects, underlineY, buildExport, embeddedRefs, stripExport */
 // Annotation model (kept in IndexedDB per PDF, and embedded in exported PDFs). Coordinates are page points at
 // scale 1 with the origin at the top left.
 //   definitions: { id, term, color, text, highlight: [{ page, rects }], box: { page, rect } }
@@ -222,7 +222,7 @@ function drawAll() {
   for (const p of pages.slice(1)) { p.overlay.replaceChildren(); p.hits.replaceChildren(); }
   for (const d of data.definitions) {
     for (const part of d.highlight) {
-      for (const r of clipRects(part.rects, pendingRects(part.page))) {
+      for (const r of clipRects(mergeOnPage(part.page, part.rects), pendingRects(part.page))) {
         pages[part.page]?.overlay.append(svg("rect", { ...rectAttrs(r), fill: d.color, "fill-opacity": 0.32 }));
         pages[part.page]?.hits.append(svg("rect", { ...rectAttrs(r), class: "hit def", "data-def": d.id }));
       }
@@ -323,7 +323,8 @@ viewer.addEventListener("mousedown", e => {
   e.preventDefault();
   const p = pages[+el.dataset.n];
   loadText(p); loadInk(p);
-  const mode = e.shiftKey ? "highlight" : pending ? "box" : "underline";
+  // While a definition is in progress, Ctrl (⌘) + drag takes text out of its highlight.
+  const mode = pending && (e.ctrlKey || e.metaKey) ? "erase" : e.shiftKey ? "highlight" : pending ? "box" : "underline";
   drag = { p, mode, start: pagePoint(p, e), end: null, moved: false, target: e.target, preview: svg("g"),
     color: pending?.color || pickColor() };
   p.overlay.append(drag.preview);
@@ -339,7 +340,9 @@ addEventListener("mousemove", e => {
     ? svg("line", { x1: r[0], x2: r[2], y1: underlineY(r), y2: underlineY(r), stroke: "#2a6fdb", "stroke-width": 1.4 })
     : drag.mode === "box"
       ? svg("rect", { ...rectAttrs(r), fill: "none", stroke: drag.color, "stroke-width": 0.5 })
-      : svg("rect", { ...rectAttrs(r), fill: drag.color, "fill-opacity": 0.32 })));
+      : drag.mode === "erase"
+        ? svg("rect", { ...rectAttrs(r), fill: "#fff", "fill-opacity": 0.9, stroke: "#d64545", "stroke-width": 0.6, "stroke-dasharray": "2 1.5" })
+        : svg("rect", { ...rectAttrs(r), fill: drag.color, "fill-opacity": 0.32 })));
 });
 
 addEventListener("mouseup", async e => {
@@ -356,13 +359,23 @@ addEventListener("mouseup", async e => {
   if (!sel || !sel.rects.length) { d.preview.remove(); return; }
   if (d.mode === "highlight") {
     d.preview.remove();
-    const rects = sel.rects;
     pending ||= { parts: [], text: "", color: d.color };
     const part = pending.parts.find(x => x.page === d.p.n);
-    if (part) part.rects = [...clipRects(part.rects, rects), ...rects]; else pending.parts.push({ page: d.p.n, rects });
-    pending.text = (pending.text + " " + sel.text).trim();
+    if (part) part.rects = mergeOnPage(d.p.n, [...part.rects, ...sel.rects]);
+    else pending.parts.push({ page: d.p.n, rects: mergeOnPage(d.p.n, sel.rects) });
+    pending.parts.sort((a, b) => a.page - b.page);
+    pending.text = pendingText();
     drawAll();
-    setStatus("Now drag a box around the term being defined · Shift-drag adds more text · Esc cancels", true);
+    setStatus("Now drag a box around the term being defined · Shift-drag adds text · Ctrl-drag removes text · Esc cancels", true);
+  } else if (d.mode === "erase") {
+    d.preview.remove();
+    const part = pending.parts.find(x => x.page === d.p.n);
+    if (part) part.rects = clipRects(part.rects, sel.rects);
+    pending.parts = pending.parts.filter(x => x.rects.length);
+    if (!pending.parts.length) { pending = null; drawAll(); setStatus("Definition cancelled (all its text was removed)"); return; }
+    pending.text = pendingText();
+    drawAll();
+    setStatus("Now drag a box around the term being defined · Shift-drag adds text · Ctrl-drag removes text · Esc cancels", true);
   } else if (d.mode === "box") {
     const rect = sel.rects[0], inside = boxText(d.p, rect), english = isEnglishPhrase(inside);
     let seen = null;
@@ -408,6 +421,17 @@ addEventListener("mouseup", async e => {
 });
 
 const pendingRects = page => pending?.parts.filter(p => p.page === page).flatMap(p => p.rects) || [];
+// Merges one definition's highlight pieces on a page: pieces with no text between them join.
+function mergeOnPage(n, rects) {
+  const chars = pages[n]?.textData?.chars;
+  if (!chars) return mergeRects(rects);
+  return mergeRects(rects, (a, b) => !chars.some(ch => {
+    const cx = (ch.x0 + ch.x1) / 2, cy = (ch.top + ch.bottom) / 2;
+    return ch.c.trim() && cx > a[2] && cx < b[0] && cy > Math.max(a[1], b[1]) && cy < Math.min(a[3], b[3]);
+  }));
+}
+// The text a definition in progress highlights, page by page.
+const pendingText = () => pending.parts.map(part => pages[part.page]?.textData?.textIn(part.rects) || "").filter(Boolean).join(" ");
 
 // Text selection for highlight/underline drags (falls back to the dragged rectangle where the
 // page has no usable text layer); a plain rectangle for box drags.

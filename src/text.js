@@ -118,6 +118,34 @@ class PageText {
     });
   }
 
+  // Text of the words inside the rects (a definition's highlight), in reading order; separate stretches
+  // are joined with a space. A word counts when at least half its letters are inside, since the
+  // highlight snaps to printed words and the text layer can sit a letter off them.
+  textIn(rects) {
+    const inside = ch => rects.some(([x0, y0, x1, y1]) => {
+      const cx = (ch.x0 + ch.x1) / 2, cy = (ch.top + ch.bottom) / 2;
+      return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+    });
+    const keep = new Set();
+    let word = [];
+    const close = () => { if (word.length && word.filter(i => inside(this.chars[i])).length * 2 >= word.length) word.forEach(i => keep.add(i)); word = []; };
+    this.chars.forEach((ch, i) => {
+      const prev = this.chars[i - 1];
+      if (!ch.c.trim()) { close(); return; }
+      if (prev && prev.c.trim() && (Math.abs(ch.base - prev.base) > ch.size * 0.6 || ch.x0 - prev.x1 > ch.size * 0.15)) close();
+      word.push(i);
+    });
+    close();
+    const runs = [];
+    this.chars.forEach((ch, i) => {
+      const kept = keep.has(i) || !ch.c.trim() && keep.has(i - 1) && keep.has(i + 1);  // spaces between kept words
+      if (!kept) return;
+      if (runs.at(-1)?.last === i - 1) runs.at(-1).chars.push(ch); else runs.push({ chars: [ch] });
+      runs.at(-1).last = i;
+    });
+    return runs.map(r => runText(r.chars)).filter(Boolean).join(" ");
+  }
+
   // Line rects of each case-insensitive match of `query`. Hyphens are ignored on both sides, so
   // words broken across lines ("homo- topy") and hyphenated words both match.
   // With `exact`, case matters (for symbols: Λ is not λ).
