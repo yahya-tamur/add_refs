@@ -15,7 +15,8 @@ To build locally: `npm install && npm run build` writes the site to `dist/`;
 
 `npm test` runs the unit tests (Node's built-in test runner, no extra dependencies): term matching,
 colours and highlight clipping (`src/terms.js`), text selection, search and ink snapping
-(`src/text.js`), the LaTeX parser of the symbol recognizer, OCR caching, the save-location fallbacks,
+(`src/text.js`), the symbol recognizer's pipeline on synthetic glyphs (splitting, merging parts,
+placing scripts, building LaTeX, matching, learning), OCR caching, the save-location fallbacks,
 and export round trips with the real pdf-lib and pdf.js (`src/pdfexport.js`). The deploy workflow
 runs them before building.
 

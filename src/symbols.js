@@ -367,5 +367,16 @@ const Symbols = (() => {
   // LaTeX command -> Unicode character, for the symbols above ("\\Lambda" -> "Λ").
   const unicode = Object.fromEntries([GREEK_LOWER, GREEK_UPPER, OPERATORS, BIG].flatMap(m => Object.entries(m).map(([k, ch]) => ["\\" + k, ch])));
 
-  return { recognize, learn, ready, atoms, unicode };
+  // For unit tests, which have no fonts to render: make a template from a bitmap ({ m, w, h }, 1 =
+  // ink; `base` and `size` as described at templateSpecs), use a given set of templates, and reach
+  // the matching steps.
+  const forTests = {
+    template: (latex, mask, { base = 1, size = 0.7, prior = 0 } = {}) => ({ latex, ...features(cropMask(mask.m, mask.w, mask.h)), base, size, prior }),
+    setTemplates: list => { templates = list; },
+    templates: () => templates,
+    features: mask => features(cropMask(mask.m, mask.w, mask.h)),
+    thin, similarity, classify,
+  };
+
+  return { recognize, learn, ready, atoms, unicode, forTests };
 })();
