@@ -88,7 +88,7 @@ async function openPdf(name, bytes, { preferStored = false, id = null } = {}) {
   undoStack.length = backStack.length = 0; pending = null; updateBack();
   $("file").textContent = name;
   document.title = name + " — Add Refs";
-  $("export").disabled = false;
+  $("export").disabled = $("find").disabled = false;
   $("pager").hidden = false;
   $("page-count").textContent = "/ " + pdf.numPages;
   pagesEl.innerHTML = ""; pages = [];
@@ -112,7 +112,7 @@ async function openPdf(name, bytes, { preferStored = false, id = null } = {}) {
   viewer.scrollTop = 0;
   updatePager(1);
   drawAll();
-  setStatus(`${data.definitions.length} definitions, ${data.references.length} references`);
+  setStatus("");
   ocrInBackground(pdf);
 }
 
@@ -258,6 +258,8 @@ function drawAll() {
 }
 
 function drawSidebar() {
+  const nd = data.definitions.length, nr = data.references.length;
+  $("counts").textContent = pdf ? `${nd} definition${nd === 1 ? "" : "s"} · ${nr} reference${nr === 1 ? "" : "s"}` : "";
   const counts = new Map(), unresolved = [];
   for (const ref of data.references) {
     const d = resolve(ref);
@@ -718,11 +720,13 @@ function stepHit(dir) {
 function openSearch() {
   if (!pdf) return;
   $("search").hidden = false;
+  $("find").classList.add("on");
   $("search-input").focus();
   $("search-input").select();
 }
 function closeSearch() {
   $("search").hidden = true;
+  $("find").classList.remove("on");
   search = { query: "", hits: [], index: -1 };
   drawAll();
 }
@@ -760,6 +764,7 @@ addEventListener("dragover", e => e.preventDefault());
 addEventListener("drop", e => { e.preventDefault(); openFiles(e.dataTransfer.files); });
 $("export").onclick = exportPdf;
 $("back").onclick = goBack;
+$("find").onclick = () => ($("search").hidden ? openSearch() : closeSearch());
 
 addEventListener("keydown", e => {
   const mod = e.ctrlKey || e.metaKey;

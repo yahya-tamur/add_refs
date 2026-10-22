@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self'; connect-src 'self' https: blob: data:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:">
 <title>Add Refs</title>
@@ -10,25 +11,23 @@
 </head>
 <body>
 <header>
-  <button id="open" title="Open a PDF (Ctrl+O). You can also drop one here.">Open…</button>
-  <input id="picker" type="file" accept=".pdf,application/pdf" hidden>
-  <button id="export" title="Save a copy of the PDF with highlights, links and the annotations inside it (Ctrl+S)" disabled>Export PDF</button>
-  <div id="pager" hidden>
-    <button id="page-prev" title="Previous page">‹</button>
-    <input id="page-input" inputmode="numeric" autocomplete="off" title="Page number (Enter to go)">
-    <span id="page-count"></span>
-    <button id="page-next" title="Next page">›</button>
+  <div class="zone left">
+    <button id="open" title="Open a PDF (Ctrl+O). You can also drop one here.">Open…</button>
+    <input id="picker" type="file" accept=".pdf,application/pdf" hidden>
+    <span id="file"></span>
   </div>
-  <button id="back" title="Back to where you followed the link (Alt+←)" hidden>← Back</button>
-  <div id="search" hidden>
-    <input id="search-input" placeholder="Find in PDF" spellcheck="false" autocomplete="off">
-    <span id="search-count"></span>
-    <button id="search-prev" title="Previous match (Shift+Enter)">↑</button>
-    <button id="search-next" title="Next match (Enter)">↓</button>
-    <button id="search-close" title="Close (Esc)">×</button>
+  <div class="zone center">
+    <div id="pager" hidden>
+      <button id="page-prev" title="Previous page">‹</button>
+      <input id="page-input" inputmode="numeric" autocomplete="off" title="Page number (Enter to go)">
+      <span id="page-count"></span>
+      <button id="page-next" title="Next page">›</button>
+    </div>
   </div>
-  <span id="file"></span>
-  <span id="status"></span>
+  <div class="zone right">
+    <button id="find" title="Find in the PDF (Ctrl+F)" disabled>Find</button>
+    <button id="export" class="primary" title="Save a copy of the PDF with highlights, links and the annotations inside it (Ctrl+S)" disabled>Export PDF</button>
+  </div>
 </header>
 <main>
   <aside id="sidebar">
@@ -46,8 +45,22 @@
       <p>Click a link to jump; <kbd>Alt</kbd>+<kbd>←</kbd> goes back. Right-click a mark to edit or delete it. <kbd>Esc</kbd> cancels, <kbd>Ctrl</kbd>+<kbd>F</kbd> searches, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+wheel zooms.</p>
     </details>
   </aside>
-  <div id="viewer"><div id="pages"></div></div>
+  <div id="stage">
+    <div id="viewer"><div id="pages"></div></div>
+    <button id="back" title="Back to where you followed the link (Alt+←)" hidden>← Back</button>
+    <div id="search" hidden>
+      <input id="search-input" placeholder="Find in PDF" spellcheck="false" autocomplete="off">
+      <span id="search-count"></span>
+      <button id="search-prev" title="Previous match (Shift+Enter)">↑</button>
+      <button id="search-next" title="Next match (Enter)">↓</button>
+      <button id="search-close" title="Close (Esc)">×</button>
+    </div>
+  </div>
 </main>
+<footer>
+  <span id="status"></span>
+  <span id="counts"></span>
+</footer>
 
 <div id="prompt" hidden>
   <label id="prompt-label"></label>

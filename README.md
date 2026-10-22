@@ -42,7 +42,7 @@ runs them before building.
 | **Drag** over a later use | Underlines it and asks which term it refers to (an English phrase is pre-filled). A match becomes a link, underlined in the definition's colour; no match is kept as a grey dashed "unlinked" mark that links once the definition exists |
 | Click an underline | Jumps to the definition; **← Back** / Alt+← returns |
 | Page box in the toolbar | Shows the page in view; type a number and press Enter to go there, or use ‹ › for the previous and next page |
-| **Ctrl+F** | Searches the PDF's text (Enter / Shift+Enter step through matches, Esc closes). A symbol (`\Lambda`, `Λ`, `\Sigma_{\Lambda}`) finds the definitions and references whose term contains it, plus any occurrence in the text layer |
+| **Ctrl+F** or **Find** | Searches the PDF's text in a panel over the top right of the page (Enter / Shift+Enter step through matches, Esc closes). A symbol (`\Lambda`, `Λ`, `\Sigma_{\Lambda}`) finds the definitions and references whose term contains it, plus any occurrence in the text layer |
 | Right-click a mark | Edit term / delete |
 | Esc · Ctrl+Z · Ctrl+wheel | Cancel · undo · zoom |
 
