@@ -6,7 +6,7 @@ Everything runs in the browser; nothing is uploaded.
 ## Hosting on GitHub Pages
 
 Push to GitHub, then under **Settings → Pages** set **Source** to **GitHub Actions**. The workflow in
-`.github/workflows/pages.yml` builds the site and deploys it on every push to `master`/`main`.
+`.github/workflows/pages.yml` builds the site and deploys it on every push to `main`.
 
 To build locally: `npm install && npm run build` writes the site to `dist/`;
 `npm run serve` builds and serves it at http://127.0.0.1:8612.
